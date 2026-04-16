@@ -9,13 +9,10 @@
 <meta name="theme-color" content="#000000">
 <title>Hapirium — HPRM</title>
 <link rel="manifest" href="#" id="manifest-link">
-<!-- Firebase SDK -->
-<script type="module">
-  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-  window._fbModules = { initializeApp, getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, getFirestore, doc, setDoc, getDoc, onSnapshot, collection, serverTimestamp };
-</script>
+<!-- Firebase SDK compat — funciona en cualquier navegador sin bundler -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap');
@@ -4494,13 +4491,17 @@ function seeFinanzas(){ return ROLES[currentRole]?.seeFinanzas ?? false; }
 // ── Inicialización Firebase ───────────────────────────────
 async function initFirebase(config){
   try {
-    const { initializeApp, getAuth, getFirestore, onAuthStateChanged } = window._fbModules;
-    fbApp  = initializeApp(config, 'hapirium');
-    fbAuth = getAuth(fbApp);
-    fbDb   = getFirestore(fbApp);
+    // Usar Firebase compat (disponible globalmente via CDN)
+    if(firebase.apps.length === 0){
+      fbApp = firebase.initializeApp(config);
+    } else {
+      fbApp = firebase.apps[0];
+    }
+    fbAuth = firebase.auth();
+    fbDb   = firebase.firestore();
 
     return new Promise((resolve)=>{
-      onAuthStateChanged(fbAuth, async user=>{
+      fbAuth.onAuthStateChanged(async user=>{
         if(user){
           fbUser = user;
           await loadUserProfile(user.uid);
@@ -4522,9 +4523,8 @@ async function initFirebase(config){
 
 // ── Cargar perfil del usuario desde Firestore ─────────────
 async function loadUserProfile(uid){
-  const { doc, getDoc } = window._fbModules;
   try {
-    const snap = await getDoc(doc(fbDb,'users',uid));
+    const snap = await fbDb.collection('users').doc(uid).get();
     if(snap.exists()){
       const data = snap.data();
       currentRole = data.rol || 'dueno';
@@ -4536,10 +4536,9 @@ async function loadUserProfile(uid){
 
 // ── Sync desde Firebase → localStorage ───────────────────
 async function syncFromFirebase(){
-  const { doc, getDoc } = window._fbModules;
   try {
     const projectId = fbAuth.app.options.projectId;
-    const snap = await getDoc(doc(fbDb,'negocios', projectId, 'datos','db'));
+    const snap = await fbDb.collection('negocios').doc(projectId).collection('datos').doc('db').get();
     if(snap.exists()){
       const data = snap.data();
       db = { ...loadDB(), ...data };
@@ -4553,9 +4552,8 @@ async function syncFromFirebase(){
 // ── Sync en tiempo real ───────────────────────────────────
 function startRealtimeSync(uid){
   if(fbUnsub) fbUnsub();
-  const { doc, onSnapshot } = window._fbModules;
   const projectId = fbAuth.app.options.projectId;
-  fbUnsub = onSnapshot(doc(fbDb,'negocios', projectId,'datos','db'), snap=>{
+  fbUnsub = fbDb.collection('negocios').doc(projectId).collection('datos').doc('db').onSnapshot(snap=>{
     if(snap.exists() && snap.metadata.hasPendingWrites === false){
       const data = snap.data();
       db = { ...db, ...data };
@@ -4595,9 +4593,8 @@ function syncFirebase(){
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(async ()=>{
     try {
-      const { doc, updateDoc, setDoc, serverTimestamp } = window._fbModules;
       const projectId = fbAuth.app.options.projectId;
-      const ref = doc(fbDb, 'negocios', projectId, 'datos', 'db');
+      const ref = fbDb.collection('negocios').doc(projectId).collection('datos').doc('db');
 
       // MEJORA 2: Merge inteligente por colección
       // updateDoc solo modifica los campos enviados, no borra los demás
@@ -4609,15 +4606,15 @@ function syncFirebase(){
           payload[col] = db[col];
         }
       });
-      payload._updatedAt  = serverTimestamp();
+      payload._updatedAt  = firebase.firestore.FieldValue.serverTimestamp();
       payload._updatedBy  = fbAuth.currentUser.email;
       payload._deviceId   = localStorage.getItem('hapirium_deviceId') || 'unknown';
 
       try {
-        await updateDoc(ref, payload);
+        await ref.update(payload);
       } catch(notFound){
         // Documento no existe aún — crearlo
-        await setDoc(ref, payload);
+        await ref.set(payload, {merge:true});
       }
       showSyncBadge('☁️ Guardado', 'var(--green)');
     } catch(err){
@@ -4673,18 +4670,15 @@ async function doLogin(){
   errDiv.style.display = 'none';
 
   try {
-    const { signInWithEmailAndPassword, createUserWithEmailAndPassword } = window._fbModules;
-
     if(loginMode === 'login'){
-      await signInWithEmailAndPassword(fbAuth, email, pass);
+      await fbAuth.signInWithEmailAndPassword(email, pass);
     } else {
       const nombre = document.getElementById('login-nombre').value.trim();
       const rol    = document.getElementById('login-rol').value;
       if(!nombre){ showLoginError('Ingresa tu nombre'); btn.textContent='Crear cuenta'; btn.disabled=false; return; }
-      const cred = await createUserWithEmailAndPassword(fbAuth, email, pass);
+      const cred = await fbAuth.createUserWithEmailAndPassword(email, pass);
       // Guardar perfil en Firestore
-      const { doc, setDoc } = window._fbModules;
-      await setDoc(doc(fbDb,'users', cred.user.uid), {
+      await fbDb.collection('users').doc(cred.user.uid).set({
         nombre, email, rol,
         createdAt: new Date().toISOString()
       });
@@ -4712,7 +4706,7 @@ function showLoginError(msg){
 
 async function doLogout(){
   if(fbMode==='firebase' && fbAuth){
-    try{ await window._fbModules.signOut(fbAuth); }catch(e){}
+    try{ await fbAuth.signOut(); }catch(e){}
   }
   if(fbUnsub){ fbUnsub(); fbUnsub=null; }
   fbUser=null; currentRole='dueno';
