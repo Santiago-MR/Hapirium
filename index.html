@@ -202,6 +202,32 @@ body {
 .card-body { padding:0; }
 .card-pad { padding:16px; }
 
+/* ── Componentes financieros reutilizables ── */
+.fin-row { display:flex; justify-content:space-between; align-items:center; }
+.fin-label { font-size:13px; font-weight:600; color:var(--cream); }
+.fin-hint { font-size:11px; color:var(--muted); margin-top:1px; }
+.fin-val { font-family:'DM Serif Display',serif; font-size:22px; }
+.fin-val.amber  { color:var(--amber);  }
+.fin-val.red    { color:var(--red);    }
+.fin-val.green  { color:var(--green);  }
+.fin-val.orange { color:var(--orange); }
+.fin-val.muted  { color:var(--muted);  }
+.fin-total  { font-size:16px; font-weight:800; color:var(--cream); }
+.fin-result { font-family:'DM Serif Display',serif; font-size:28px; font-weight:900; }
+.fin-result.green { color:var(--green);  }
+.fin-result.red   { color:var(--red);    }
+.fin-result.amber { color:var(--amber);  }
+.fin-bar { height:10px; background:var(--s3); border-radius:5px; overflow:hidden; display:flex; }
+.fin-bar-seg { min-width:0; transition:width 0.4s; }
+.fin-bar-seg.red    { background:var(--red);    }
+.fin-bar-seg.green  { background:var(--green);  }
+.fin-bar-seg.orange { background:var(--orange); }
+.fin-bar-seg.amber  { background:var(--amber);  }
+.fin-bar-seg.empty  { background:var(--s3);     }
+.fin-bar-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-top:4px; }
+.bd-bottom  { padding:10px 0; border-bottom:1px solid var(--border);  }
+.bd-bottom2 { padding:10px 0; border-bottom:2px solid var(--border2); }
+
 /* ── STAT CARDS ── */
 .stats-row {
   display:grid;
@@ -673,7 +699,7 @@ body {
         <div class="form-group"><label>Project ID</label><input type="text" id="fb-projectId" placeholder="mi-proyecto"></div>
         <div class="form-group"><label>App ID</label><input type="text" id="fb-appId" placeholder="1:123456:web:abc..."></div>
         <button class="btn btn-amber btn-full" onclick="saveFbConfig()" style="margin-top:8px;">Conectar Firebase</button>
-        <button class="btn btn-ghost btn-full" onclick="usarSinFirebase()" style="margin-top:8px;">Usar sin sincronización (solo este dispositivo)</button>
+        
       </div>
     </div>
   </div>
@@ -748,9 +774,7 @@ body {
         <div style="text-align:center;margin-top:12px;font-size:12px;color:var(--muted);">
           El acceso es solo por invitación del administrador.
         </div>
-        <div style="text-align:center;margin-top:8px;">
-          <span onclick="usarSinFirebase()" style="font-size:12px;color:var(--muted);cursor:pointer;text-decoration:underline;">Continuar sin cuenta (modo local)</span>
-        </div>
+
       </div>
     </div>
 
@@ -783,7 +807,7 @@ body {
 </div>
 
 <!-- SCROLL AREA -->
-<div id="scroll-area">
+<div id="scroll-area" style="display:none">
 
   <!-- ═══════════ PAGE: DASHBOARD ═══════════ -->
   <div id="page-home" class="page active">
@@ -793,7 +817,14 @@ body {
     </div>
 
     <!-- P&L rápido -->
-    <div style="padding:0 16px;" id="dash-pl"></div>
+    <div style="padding:0 16px;">
+      <!-- C1: Utilidad — fuente única, solo ventas -->
+      <div id="dash-pl-c1" class="card mb12"></div>
+      <!-- C2: Distribución de utilidad — gastos no operacionales -->
+      <div id="dash-pl-c2" class="card mb12"></div>
+      <!-- C3: Distribución del costo — gastos operacionales -->
+      <div id="dash-pl-c3" class="card mb12"></div>
+    </div>
 
     <!-- Stats fila -->
     <div style="padding:0 16px;" id="dash-stats"></div>
@@ -1061,7 +1092,7 @@ body {
 </div><!-- /scroll-area -->
 
 <!-- BOTTOM NAV -->
-<div id="bottom-nav">
+<div id="bottom-nav" style="display:none">
   <div class="nav-tab active" onclick="navigate('home',this)">
     <div class="nav-icon">🏠</div>
     <div class="nav-label">Inicio</div>
@@ -1085,7 +1116,7 @@ body {
 </div>
 
 <!-- FAB -->
-<div id="fab" onclick="openFabMenu()">＋</div>
+<div id="fab" style="display:none" onclick="openFabMenu()">＋</div>
 
 <!-- TOAST -->
 <div id="toast"></div>
@@ -1770,7 +1801,7 @@ function loadDB(){
   try{ const r=localStorage.getItem(DB_KEY); if(r) return JSON.parse(r); }catch(e){}
   return { productos:[], repartidores:[], precios:[], ventas:[], devoluciones:[], gastos:[], empleados:[] };
 }
-function saveDB(){ localStorage.setItem(DB_KEY,JSON.stringify(db)); }
+
 let db=loadDB();
 let _uidCounter = 0;
 function uid(){
@@ -1808,6 +1839,201 @@ const GASTO_CAT = {
   publicidad:{label:'Publicidad',icon:'📣',color:'#34d399'},
   otro:{label:'Otro',icon:'📌',color:'var(--muted)'},
 };
+
+// ═══════════════════════════════════════════════════════════════
+// MOTOR FINANCIERO — Capa de cálculo pura (sin DOM, sin efectos)
+// Todas las funciones son puras: misma entrada → misma salida.
+// Ninguna función de render debe recalcular — solo llama aquí.
+// ═══════════════════════════════════════════════════════════════
+
+// ── Categorías operacionales vs distribución ─────────────────
+// Operacionales: afectan el costo de producir y operar
+// Distribución:  cómo se distribuye la utilidad (gastos no productivos)
+const CATS_OPERACIONAL  = ['nomina','arriendo','servicios','materia_prima','publicidad'];
+const CATS_DISTRIBUCION = ['deuda','transporte','mantenimiento','impuestos','otro'];
+
+// ── Función central: calcular todas las finanzas de un mes ────
+// Recibe un mes en formato 'YYYY-MM'
+// Retorna un objeto con TODOS los números que necesita la app
+function calcularMes(mes) {
+  const ventasMes  = db.ventas.filter(v => v.fecha.startsWith(mes));
+  const gastosMes  = db.gastos.filter(g => g.fecha.startsWith(mes));
+  const devMes     = db.devoluciones.filter(d => d.fecha.startsWith(mes));
+
+  // ── Ingresos y producción ──────────────────────────────────
+  const ingresos       = ventasMes.reduce((s, v) => s + (v.total      || 0), 0);
+  const cogs           = ventasMes.reduce((s, v) => s + (v.costoTotal || 0), 0);
+  const cantidadVentas = ventasMes.reduce((s, v) => s + (v.cantidad   || 0), 0);
+
+  // ── Devoluciones ───────────────────────────────────────────
+  // Valor al precio del repartidor — afecta directamente la utilidad
+  const valorDevoluciones = devMes.reduce((s, d) => {
+    const val = d.valorDevolucion !== undefined
+      ? d.valorDevolucion
+      : (d.cantidad || 0) * getPrecioRep(d.repartidorId, d.productoId);
+    return s + val;
+  }, 0);
+
+  // ── Cuadro 1: UTILIDAD ─────────────────────────────────────
+  // Fuente única de verdad. Nadie más calcula esto.
+  // Fórmula: Ingresos − Costo de lo vendido − Devoluciones
+  const utilidad   = ingresos - cogs - valorDevoluciones;
+  const margenUtil = ingresos > 0 ? (utilidad / ingresos * 100) : 0;
+
+  // ── Gastos por categoría ───────────────────────────────────
+  // Un reduce por categoría, resultado disponible para C2 y C3
+  const gastosPorCat = {};
+  Object.keys(GASTO_CAT).forEach(cat => {
+    gastosPorCat[cat] = gastosMes
+      .filter(g => g.cat === cat)
+      .reduce((s, g) => s + (g.monto || 0), 0);
+  });
+
+  // Gastos sin categoría conocida → van a "otro"
+  const gOtroExtra = gastosMes
+    .filter(g => !GASTO_CAT[g.cat])
+    .reduce((s, g) => s + (g.monto || 0), 0);
+  gastosPorCat.otro = (gastosPorCat.otro || 0) + gOtroExtra;
+
+  // ── Cuadro 3: COSTO OPERACIONAL ───────────────────────────
+  // cogs + todos los gastos operacionales
+  const costoOp = CATS_OPERACIONAL.reduce(
+    (s, cat) => s + (gastosPorCat[cat] || 0), cogs
+  );
+  const margenOp = ingresos > 0 ? ((ingresos - costoOp) / ingresos * 100) : 0;
+
+  // ── Cuadro 2: DISTRIBUCIÓN ────────────────────────────────
+  // Parte desde la utilidad del C1, descuenta gastos no operacionales
+  const totalDistribucion = CATS_DISTRIBUCION.reduce(
+    (s, cat) => s + (gastosPorCat[cat] || 0), 0
+  );
+  const utilidadLibre = utilidad - totalDistribucion;
+
+  // ── Totales de gastos ──────────────────────────────────────
+  const totalGastos = gastosMes.reduce((s, g) => s + (g.monto || 0), 0);
+
+  return {
+    // Colecciones filtradas (para render sin recalcular)
+    ventasMes,
+    gastosMes,
+    devMes,
+
+    // Cuadro 1 — Utilidad
+    ingresos,
+    cogs,
+    valorDevoluciones,
+    utilidad,
+    margenUtil,
+
+    // Cuadro 2 — Distribución
+    gastosPorCat,
+    totalDistribucion,
+    utilidadLibre,
+
+    // Cuadro 3 — Costo operacional
+    costoOp,
+    margenOp,
+
+    // Totales generales
+    totalGastos,
+    cantidadVentas,
+    cantidadDevol: devMes.length,
+  };
+}
+
+// ── Cálculo por rango de fechas (para tab Costos) ─────────────
+function calcularRango(desde, hasta) {
+  const enRango = x => x.fecha >= desde && x.fecha <= hasta;
+  const ventasR = db.ventas.filter(enRango);
+  const gastosR = db.gastos.filter(enRango);
+  const devR    = db.devoluciones.filter(enRango);
+
+  const ingresos = ventasR.reduce((s, v) => s + (v.total      || 0), 0);
+  const cogs     = ventasR.reduce((s, v) => s + (v.costoTotal || 0), 0);
+
+  const valorDevoluciones = devR.reduce((s, d) => {
+    const val = d.valorDevolucion !== undefined
+      ? d.valorDevolucion
+      : (d.cantidad || 0) * getPrecioRep(d.repartidorId, d.productoId);
+    return s + val;
+  }, 0);
+
+  const utilidad   = ingresos - cogs - valorDevoluciones;
+  const totalGastos = gastosR.reduce((s, g) => s + (g.monto || 0), 0);
+
+  const gastosPorCat = {};
+  Object.keys(GASTO_CAT).forEach(cat => {
+    gastosPorCat[cat] = gastosR
+      .filter(g => g.cat === cat)
+      .reduce((s, g) => s + (g.monto || 0), 0);
+  });
+
+  const costoOp = CATS_OPERACIONAL.reduce(
+    (s, cat) => s + (gastosPorCat[cat] || 0), cogs
+  );
+
+  return {
+    ventasR, gastosR, devR,
+    ingresos, cogs, valorDevoluciones,
+    utilidad, totalGastos, costoOp,
+    gastosPorCat,
+    margenUtil: ingresos > 0 ? (utilidad / ingresos * 100) : 0,
+    cantidadVentas: ventasR.reduce((s, v) => s + (v.cantidad || 0), 0),
+  };
+}
+
+// ── Cálculo histórico 6 meses (para gráficas de análisis) ─────
+function calcularHistorico6Meses() {
+  return getLast6Months().map(mes => ({
+    mes,
+    label: monthLabel(mes),
+    ...calcularMes(mes),
+  }));
+}
+
+// ── Cálculo por repartidor ────────────────────────────────────
+function calcularPorRepartidor(repId, mes = null) {
+  const filtro = v => v.repartidorId === repId && (!mes || v.fecha.startsWith(mes));
+  const filtroD = d => d.repartidorId === repId && (!mes || d.fecha.startsWith(mes));
+
+  const ventas = db.ventas.filter(filtro);
+  const devols = db.devoluciones.filter(filtroD);
+
+  const ingresos = ventas.reduce((s, v) => s + (v.total      || 0), 0);
+  const cogs     = ventas.reduce((s, v) => s + (v.costoTotal || 0), 0);
+  const ganancia = ventas.reduce((s, v) => s + (v.ganancia   || 0), 0);
+  const unidades = ventas.reduce((s, v) => s + (v.cantidad   || 0), 0);
+
+  const valorDevoluciones = devols.reduce((s, d) => {
+    return s + (d.valorDevolucion !== undefined
+      ? d.valorDevolucion
+      : (d.cantidad || 0) * getPrecioRep(d.repartidorId, d.productoId));
+  }, 0);
+
+  return {
+    ventas, devols,
+    ingresos, cogs, ganancia, unidades,
+    valorDevoluciones,
+    utilidadNeta: ganancia - valorDevoluciones,
+    cantidadDevol: devols.length,
+  };
+}
+
+// ── Cálculo por producto ──────────────────────────────────────
+function calcularPorProducto(prodId) {
+  const ventas = db.ventas.filter(v => v.productoId === prodId);
+  const unidades = ventas.reduce((s, v) => s + (v.cantidad || 0), 0);
+  const ingresos = ventas.reduce((s, v) => s + (v.total    || 0), 0);
+  const cogs     = ventas.reduce((s, v) => s + (v.costoTotal || 0), 0);
+  const prod     = getProd(prodId);
+  const margen   = prod.precio > 0
+    ? ((prod.precio - prod.costo) / prod.precio * 100)
+    : 0;
+
+  return { ventas, unidades, ingresos, cogs, margen };
+}
+
+
 
 // ═══════════════════════════════════════════════
 // NAVIGATION
@@ -1878,354 +2104,365 @@ function toggleDashChart(){
 }
 
 function renderDashboard(){
-  const d=new Date();
-  document.getElementById('dash-date').textContent=d.toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  // ── Fecha y datos del mes ──────────────────────────────────
+  const d   = new Date();
+  const mes = curMes();
+  document.getElementById('dash-date').textContent =
+    d.toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
-  const mes=curMes();
-  const ventasMes=db.ventas.filter(v=>v.fecha.startsWith(mes));
-  const gastosMes=db.gastos.filter(g=>g.fecha.startsWith(mes));
-  const devMes=db.devoluciones.filter(x=>x.fecha.startsWith(mes));
+  // ── Un solo cálculo para toda la pantalla ─────────────────
+  // calcularMes() es la fuente única de verdad financiera
+  const f = calcularMes(mes);
 
-  const ingresos = ventasMes.reduce((s,v)=>s+v.total, 0);
-
-  // ── COGS: costo de producción de lo vendido ──
-  const cogs = ventasMes.reduce((s,v)=>s+v.costoTotal, 0);
-
-  // ── Devoluciones del mes: restan directamente de la utilidad ──
-  // Valor = cantidad × precio del repartidor (guardado al registrar)
-  // Para devoluciones antiguas sin valorDevolucion, se calcula con getPrecioRep
-  const valorDevoluciones = devMes.reduce((s,d)=>{
-    const val = d.valorDevolucion !== undefined
-      ? d.valorDevolucion
-      : d.cantidad * getPrecioRep(d.repartidorId, d.productoId);
-    return s + val;
-  }, 0);
-
-  const utilidad   = ingresos - cogs - valorDevoluciones;
-  const margenUtil = ingresos > 0 ? (utilidad/ingresos*100).toFixed(1) : '0';
-
-  // ── Gastos operacionales (para Cuadro 3 solamente) ──
-  const g_nomina    = gastosMes.filter(g=>g.cat==='nomina').reduce((s,g)=>s+g.monto,0);
-  const g_arriendo  = gastosMes.filter(g=>g.cat==='arriendo').reduce((s,g)=>s+g.monto,0);
-  const g_servicios = gastosMes.filter(g=>g.cat==='servicios').reduce((s,g)=>s+g.monto,0);
-  const g_materia   = gastosMes.filter(g=>g.cat==='materia_prima').reduce((s,g)=>s+g.monto,0);
-  const g_publi     = gastosMes.filter(g=>g.cat==='publicidad').reduce((s,g)=>s+g.monto,0);
-  const costoOp     = cogs + g_nomina + g_arriendo + g_servicios + g_materia + g_publi;
-  const margen      = ingresos > 0 ? (( ingresos - costoOp)/ingresos*100).toFixed(1) : '0';
-
-  // ── Gastos de distribución (para Cuadro 2 solamente) ──
-  const g_transporte = gastosMes.filter(g=>g.cat==='transporte').reduce((s,g)=>s+g.monto,0);
-  const g_deuda      = gastosMes.filter(g=>g.cat==='deuda').reduce((s,g)=>s+g.monto,0);
-  const g_mante      = gastosMes.filter(g=>g.cat==='mantenimiento').reduce((s,g)=>s+g.monto,0);
-  const g_impuesto   = gastosMes.filter(g=>g.cat==='impuestos').reduce((s,g)=>s+g.monto,0);
-  const g_otros      = gastosMes.filter(g=>!['nomina','arriendo','servicios','materia_prima','publicidad','transporte','deuda','mantenimiento','impuestos'].includes(g.cat)).reduce((s,g)=>s+g.monto,0);
-  const otrosGastos  = g_transporte + g_deuda + g_mante + g_impuesto + g_otros;
-
-  // Cuadro 1 usa: ingresos, cogs, utilidad         ← SOLO ventas
-  // Cuadro 2 usa: utilidad, g_deuda/transporte/...  ← distribución
-  // Cuadro 3 usa: costoOp y sus componentes         ← operación
-
-  // ════════════════════════════════════════════════════
-  // ════════════════════════════════════════════════════
-  // CUADRO 1 — UTILIDAD
-  // Ventas − Costo de lo vendido − Devoluciones = Utilidad
-  // Solo estas tres fuentes. Ningún gasto manual lo toca.
-  // ════════════════════════════════════════════════════
-  const card1 = `
-    <div class="card mb12">
-      <div class="card-hd">
-        <h3>📊 Utilidad</h3>
-        <span class="badge badge-amber">${d.toLocaleDateString('es-CO',{month:'short',year:'numeric'})}</span>
-      </div>
-      <div class="card-pad">
-
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--cream)">💰 Ventas (ingresos)</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">${ventasMes.length} ventas registradas</div>
-          </div>
-          <div style="font-family:'DM Serif Display',serif;font-size:22px;color:var(--amber)">${fmt(ingresos)}</div>
-        </div>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--cream)">🌾 Costo de lo vendido</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">Costo de producción de las ventas</div>
-          </div>
-          <div style="font-family:'DM Serif Display',serif;font-size:22px;color:var(--red)">−${fmt(cogs)}</div>
-        </div>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:2px solid var(--border2)">
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--cream)">↩️ Devoluciones</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">${devMes.length} devol. · precio del repartidor</div>
-          </div>
-          <div style="text-align:right">
-            <div style="font-family:'DM Serif Display',serif;font-size:22px;color:${valorDevoluciones>0?'var(--orange)':'var(--muted)'}">
-              ${valorDevoluciones>0?'−'+fmt(valorDevoluciones):'—'}
-            </div>
-            ${valorDevoluciones>0&&ingresos>0?`<div style="font-size:10px;color:var(--muted)">${(valorDevoluciones/ingresos*100).toFixed(1)}% de ventas</div>`:''}
-          </div>
-        </div>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0 10px">
-          <div>
-            <div style="font-size:16px;font-weight:800;color:var(--cream)">= Utilidad</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">Margen: ${margenUtil}%</div>
-          </div>
-          <div style="font-family:'DM Serif Display',serif;font-size:28px;font-weight:900;color:${utilidad>=0?'var(--green)':'var(--red)'}">
-            ${fmt(utilidad)}
-          </div>
-        </div>
-
-        <div style="height:10px;background:var(--s3);border-radius:5px;overflow:hidden;display:flex;gap:1px">
-          <div style="width:${ingresos>0?Math.min(100,(cogs/ingresos*100)).toFixed(1):50}%;background:var(--red);border-radius:5px 0 0 5px;min-width:${cogs>0?2:0}px"></div>
-          <div style="width:${ingresos>0?Math.min(100,(valorDevoluciones/ingresos*100)).toFixed(1):0}%;background:var(--orange);min-width:${valorDevoluciones>0?2:0}px"></div>
-          <div style="flex:1;background:${utilidad>0?'var(--green)':'var(--s3)'};border-radius:0 5px 5px 0;min-width:${utilidad>0?2:0}px"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px">
-          <span>🌾 ${ingresos>0?(cogs/ingresos*100).toFixed(0):0}%</span>
-          ${valorDevoluciones>0?`<span>↩️ ${ingresos>0?(valorDevoluciones/ingresos*100).toFixed(0):0}%</span>`:''}
-          <span>✅ ${ingresos>0?Math.max(0,(utilidad/ingresos*100)).toFixed(0):0}%</span>
-        </div>
-
-      </div>
-    </div>`;
-
-  // ════════════════════════════════════════════════════
-  // CUADRO 2 — DISTRIBUCIÓN DE UTILIDAD
-  // Toma la utilidad y le va restando los no-operacionales:
-  // deudas, transporte, mantenimiento, impuestos, otros
-  // ════════════════════════════════════════════════════
-  const distribuItems = [
-    { label:'📋 Deudas / Créditos', monto: g_deuda,      color:'var(--red)'   },
-    { label:'🚗 Transporte',        monto: g_transporte, color:'#38bdf8'      },
-    { label:'🔧 Mantenimiento',     monto: g_mante,      color:'#fb923c'      },
-    { label:'🧾 Impuestos',         monto: g_impuesto,   color:'#f87171'      },
-    { label:'📌 Otros',             monto: g_otros,      color:'var(--muted)' },
-  ].filter(x=>x.monto>0);
-
-  const totalDistrib  = distribuItems.reduce((s,x)=>s+x.monto, 0);
-  const utilidadLibre = utilidad - totalDistrib;
-
-  const card2 = `
-    <div class="card mb12">
-      <div class="card-hd">
-        <h3>💵 Distribución de utilidad</h3>
-        <span class="badge badge-green" style="font-size:10px">Desde ${fmt(utilidad)}</span>
-      </div>
-
-      ${distribuItems.length === 0 ? `
-        <div style="padding:24px 16px;text-align:center">
-          <div style="font-size:32px;margin-bottom:10px;opacity:0.35">💸</div>
-          <div style="font-size:13px;color:var(--muted);line-height:1.7">
-            Aquí verás cómo se gasta tu utilidad.<br>
-            Registra <strong style="color:var(--amber)">deudas, arreglos, transporte</strong><br>
-            con el botón <strong style="color:var(--amber)">＋ → Gasto</strong>
-          </div>
-        </div>` : `
-
-        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;color:var(--muted)">Utilidad disponible</span>
-          <span style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--green)">${fmt(utilidad)}</span>
-        </div>
-        <div style="padding:8px 16px 0"><div style="height:6px;background:var(--green);border-radius:3px"></div></div>
-
-        ${(()=>{
-          let saldo = utilidad;
-          return distribuItems.map(item => {
-            saldo -= item.monto;
-            const pct = utilidad>0 ? (item.monto/utilidad*100).toFixed(0) : 0;
-            const pctBar = utilidad>0 ? Math.max(0,(saldo/utilidad*100)).toFixed(1) : 0;
-            const col = saldo > utilidad*0.6 ? 'var(--green)' :
-                        saldo > utilidad*0.3 ? 'var(--amber)' :
-                        saldo >= 0                ? 'var(--orange)' : 'var(--red)';
-            return `<div style="padding:11px 16px;border-bottom:1px solid var(--border)">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-                <div style="display:flex;align-items:center;gap:5px">
-                  <span style="font-size:14px;font-weight:900;color:var(--red)">−</span>
-                  <span style="font-size:13px;font-weight:600;color:var(--cream)">${item.label}</span>
-                </div>
-                <div>
-                  <span style="font-size:13px;font-weight:700;color:${item.color}">−${fmt(item.monto)}</span>
-                  <span style="font-size:10px;color:var(--muted);margin-left:4px">${pct}%</span>
-                </div>
-              </div>
-              <div style="height:7px;background:var(--s3);border-radius:4px;overflow:hidden;margin-bottom:3px">
-                <div style="height:100%;width:${pctBar}%;background:${col};border-radius:4px;transition:width 0.4s"></div>
-              </div>
-              <div style="display:flex;justify-content:space-between;font-size:10px">
-                <span style="color:var(--muted)">Queda</span>
-                <span style="font-weight:700;color:${col}">${fmt(saldo)}</span>
-              </div>
-            </div>`;
-          }).join('');
-        })()}
-
-        <div style="padding:14px 16px;background:var(--s2);border-radius:0 0 var(--r) var(--r)">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div>
-              <div style="font-size:14px;font-weight:700;color:var(--cream)">${utilidadLibre>=0?'✅ Utilidad libre':'⚠️ Déficit'}</div>
-              <div style="font-size:11px;color:var(--muted);margin-top:1px">Distribuiste ${fmt(totalDistrib)}</div>
-            </div>
-            <div style="font-family:'DM Serif Display',serif;font-size:24px;font-weight:900;color:${utilidadLibre>=0?'var(--green)':'var(--red)'}">
-              ${fmt(utilidadLibre)}
-            </div>
-          </div>
-          <div style="height:8px;background:var(--s3);border-radius:4px;overflow:hidden;display:flex;gap:1px">
-            <div style="width:${utilidad>0?Math.min(100,(totalDistrib/utilidad*100)).toFixed(1):0}%;background:var(--orange);border-radius:4px 0 0 4px;min-width:${totalDistrib>0?3:0}px"></div>
-            <div style="flex:1;background:${utilidadLibre>=0?'var(--green)':'var(--red)'};border-radius:0 4px 4px 0;min-width:${utilidadLibre>0?3:0}px"></div>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px">
-            <span>Gastado ${utilidad>0?(totalDistrib/utilidad*100).toFixed(0):0}%</span>
-            <span>Libre ${utilidad>0?Math.max(0,(utilidadLibre/utilidad*100)).toFixed(0):0}%</span>
-          </div>
-        </div>`}
-    </div>`;
-
-  // ════════════════════════════════════════════════════
-  // CUADRO 3 — DISTRIBUCIÓN DEL COSTO
-  // Parte desde cogs (costo de lo vendido, Cuadro 1)
-  // y le resta cada gasto operacional uno a uno:
-  // cogs − nómina − arriendo − servicios − materia − publi
-  // ════════════════════════════════════════════════════
-  const costoDistribItems = [
-    { label:'👷 Nómina',             monto: g_nomina,    color:'var(--purple)' },
-    { label:'🏠 Arriendo',           monto: g_arriendo,  color:'var(--blue)'   },
-    { label:'💡 Servicios públicos', monto: g_servicios, color:'var(--amber)'  },
-    { label:'🌿 Materia prima',       monto: g_materia,   color:'var(--green)'  },
-    { label:'📣 Publicidad',         monto: g_publi,     color:'#f472b6'       },
-  ].filter(x=>x.monto>0);
-
-  const totalCostoDistrib = costoDistribItems.reduce((s,x)=>s+x.monto, 0);
-  const costoSaldo        = cogs - totalCostoDistrib;
-
-  const card3 = cogs > 0 ? `
-    <div class="card mb12">
-      <div class="card-hd">
-        <h3>⚙️ Distribución del costo</h3>
-        <span class="badge badge-orange" style="font-size:10px">Desde ${fmt(cogs)}</span>
-      </div>
-
-      ${costoDistribItems.length === 0 ? `
-        <div style="padding:24px 16px;text-align:center">
-          <div style="font-size:32px;margin-bottom:10px;opacity:0.35">⚙️</div>
-          <div style="font-size:13px;color:var(--muted);line-height:1.7">
-            Registra nómina, arriendo, servicios<br>
-            con <strong style="color:var(--amber)">＋ → Gasto</strong> para ver<br>
-            cómo se distribuye el costo.
-          </div>
-        </div>` : `
-
-        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;color:var(--muted)">Costo de lo vendido (base)</span>
-          <span style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--orange)">${fmt(cogs)}</span>
-        </div>
-        <div style="padding:8px 16px 0">
-          <div style="height:6px;background:var(--orange);border-radius:3px"></div>
-        </div>
-
-        ${(()=>{
-          let saldo = cogs;
-          return costoDistribItems.map(item => {
-            saldo -= item.monto;
-            const pct    = cogs>0 ? (item.monto/cogs*100).toFixed(0) : 0;
-            const pctBar = cogs>0 ? Math.max(0,(saldo/cogs*100)).toFixed(1) : 0;
-            const col    = saldo > cogs*0.6 ? 'var(--green)' :
-                           saldo > cogs*0.3 ? 'var(--amber)' :
-                           saldo >= 0       ? 'var(--orange)' : 'var(--red)';
-            return `<div style="padding:11px 16px;border-bottom:1px solid var(--border)">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-                <div style="display:flex;align-items:center;gap:5px">
-                  <span style="font-size:14px;font-weight:900;color:var(--red)">−</span>
-                  <span style="font-size:13px;font-weight:600;color:var(--cream)">${item.label}</span>
-                </div>
-                <div>
-                  <span style="font-size:13px;font-weight:700;color:${item.color}">−${fmt(item.monto)}</span>
-                  <span style="font-size:10px;color:var(--muted);margin-left:4px">${pct}%</span>
-                </div>
-              </div>
-              <div style="height:7px;background:var(--s3);border-radius:4px;overflow:hidden;margin-bottom:3px">
-                <div style="height:100%;width:${pctBar}%;background:${col};border-radius:4px;transition:width 0.4s"></div>
-              </div>
-              <div style="display:flex;justify-content:space-between;font-size:10px">
-                <span style="color:var(--muted)">Queda</span>
-                <span style="font-weight:700;color:${col}">${fmt(saldo)}</span>
-              </div>
-            </div>`;
-          }).join('');
-        })()}
-
-        <div style="padding:14px 16px;background:var(--s2);border-radius:0 0 var(--r) var(--r)">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div>
-              <div style="font-size:14px;font-weight:700;color:var(--cream)">
-                ${costoSaldo>=0?'🟡 Saldo del costo':'🔴 Costo supera producción'}
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-top:1px">
-                Distribuiste ${fmt(totalCostoDistrib)} del costo
-              </div>
-            </div>
-            <div style="font-family:'DM Serif Display',serif;font-size:24px;font-weight:900;color:${costoSaldo>=0?'var(--amber)':'var(--red)'}">
-              ${fmt(costoSaldo)}
-            </div>
-          </div>
-          <div style="height:8px;background:var(--s3);border-radius:4px;overflow:hidden;display:flex;gap:1px">
-            <div style="width:${cogs>0?Math.min(100,(totalCostoDistrib/cogs*100)).toFixed(1):0}%;background:var(--red);border-radius:4px 0 0 4px;min-width:${totalCostoDistrib>0?3:0}px"></div>
-            <div style="flex:1;background:${costoSaldo>=0?'var(--amber)':'var(--red)'};border-radius:0 4px 4px 0;min-width:${costoSaldo>0?3:0}px"></div>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px">
-            <span>Distribuido ${cogs>0?(totalCostoDistrib/cogs*100).toFixed(0):0}%</span>
-            <span>Saldo ${cogs>0?Math.max(0,(costoSaldo/cogs*100)).toFixed(0):0}%</span>
-          </div>
-        </div>`}
-    </div>` : '';
-
-  document.getElementById('dash-pl').innerHTML = card1 + card2 + card3;
-
-
-  // Stats
-  const stockCritico=db.productos.filter(p=>p.stock<=(p.stockMin||0)).length;
-  document.getElementById('dash-stats').innerHTML=`
-    <div class="stats-row">
-      <div class="stat-box amber"><div class="stat-lbl">Ingresos mes</div><div class="stat-val sm">${fmt(ingresos)}</div><div class="stat-hint">${ventasMes.length} ventas</div></div>
-      <div class="stat-box ${utilidad>=0?'green':'red'}"><div class="stat-lbl">Utilidad</div><div class="stat-val sm">${fmt(utilidad)}</div><div class="stat-hint">Margen: ${margenUtil}%</div></div>
-    </div>
-    <div class="stats-row three" style="margin-bottom:12px">
-      <div class="stat-box red"><div class="stat-lbl">Costo op.</div><div class="stat-val sm" style="font-size:14px">${fmt(costoOp)}</div></div>
-      <div class="stat-box orange"><div class="stat-lbl">Devol.</div><div class="stat-val sm" style="font-size:14px">${devMes.length}</div></div>
-      <div class="stat-box ${stockCritico>0?'red':'blue'}"><div class="stat-lbl">Stock bajo</div><div class="stat-val sm" style="font-size:14px">${stockCritico}</div></div>
-    </div>`;
-
-  // Gastos pendientes / vencidos alerta
-  const pendientes=db.gastos.filter(g=>g.estado==='pendiente'||g.estado==='vencido');
-  let alertasHTML='';
-  if(pendientes.length){
-    const totalPend=pendientes.reduce((s,g)=>s+g.monto,0);
-    alertasHTML+=`<div class="card mb12" style="border-color:var(--red)">
-      <div class="card-hd" style="border-color:var(--red)"><h3 style="color:var(--red)">⚠️ Gastos pendientes / vencidos</h3></div>
-      ${pendientes.slice(0,3).map(g=>`<div class="list-item" style="cursor:default">
-        <div class="cat-icon" style="background:${GASTO_CAT[g.cat]?.color||'var(--muted)'}22">${GASTO_CAT[g.cat]?.icon||'📌'}</div>
-        <div class="li-body"><div class="li-title">${g.desc}</div><div class="li-sub">${g.fecha}</div></div>
-        <div class="li-right"><div class="li-amt text-red">${fmt(g.monto)}</div><div class="li-date"><span class="badge badge-red">${g.estado}</span></div></div>
-      </div>`).join('')}
-      ${pendientes.length>3?`<div style="padding:10px 16px;font-size:11px;color:var(--muted);text-align:center">+${pendientes.length-3} más por ${fmt(totalPend)}</div>`:''}
-    </div>`;
-  }
-  if(stockCritico>0){
-    alertasHTML+=`<div class="card mb12" style="border-color:var(--amber)">
-      <div class="card-hd" style="border-color:var(--amber)"><h3 style="color:var(--amber)">📦 Stock crítico</h3></div>
-      ${db.productos.filter(p=>p.stock<=(p.stockMin||0)).slice(0,3).map(p=>`
-        <div class="list-item" style="cursor:default">
-          <div class="li-body"><div class="li-title">${p.nombre}</div><div class="li-sub">${p.unidad||'Unidad'}</div></div>
-          <div class="li-right"><div class="li-amt text-red">${p.stock}</div><div class="li-date">mín: ${p.stockMin||0}</div></div>
-        </div>`).join('')}
-    </div>`;
-  }
-  document.getElementById('dash-alerts').innerHTML=alertasHTML;
+  // ── Renderizar cada sección de forma independiente ────────
+  _renderCuadro1(f);
+  _renderCuadro2(f);
+  _renderCuadro3(f);
+  _renderDashStats(f, mes);
+  _renderDashAlertas(f);
 
   renderDashChart();
   renderDashReps();
+}
+
+// ── Cuadro 1: UTILIDAD ────────────────────────────────────────
+// Fuente: solo ventas y devoluciones. Ningún gasto manual entra aquí.
+function _renderCuadro1(f){
+  const { ingresos, cogs, valorDevoluciones, utilidad, margenUtil,
+          ventasMes, devMes } = f;
+
+  const pctCogs = ingresos > 0 ? Math.min(100,(cogs/ingresos*100)).toFixed(1) : 50;
+  const pctDevs = ingresos > 0 ? Math.min(100,(valorDevoluciones/ingresos*100)).toFixed(1) : 0;
+  const pctUtil = ingresos > 0 ? Math.max(0,(utilidad/ingresos*100)).toFixed(0) : 0;
+
+  document.getElementById('dash-pl-c1').innerHTML = `
+    <div class="card-hd">
+      <h3>📊 Utilidad</h3>
+      <span class="badge badge-amber">${new Date().toLocaleDateString('es-CO',{month:'short',year:'numeric'})}</span>
+    </div>
+    <div class="card-pad">
+      <div class="fin-row bd-bottom">
+        <div>
+          <div class="fin-label">💰 Ventas (ingresos)</div>
+          <div class="fin-hint">${ventasMes.length} ventas registradas</div>
+        </div>
+        <div class="fin-val amber">${fmt(ingresos)}</div>
+      </div>
+      <div class="fin-row bd-bottom">
+        <div>
+          <div class="fin-label">🌾 Costo de lo vendido</div>
+          <div class="fin-hint">Costo de producción de las ventas</div>
+        </div>
+        <div class="fin-val red">−${fmt(cogs)}</div>
+      </div>
+      <div class="fin-row bd-bottom2">
+        <div>
+          <div class="fin-label">↩️ Devoluciones</div>
+          <div class="fin-hint">${devMes.length} devol. · precio del repartidor</div>
+        </div>
+        <div style="text-align:right">
+          <div class="fin-val ${valorDevoluciones > 0 ? 'orange' : 'muted'}">
+            ${valorDevoluciones > 0 ? '−' + fmt(valorDevoluciones) : '—'}
+          </div>
+          ${valorDevoluciones > 0 && ingresos > 0
+            ? `<div class="fin-hint">${(valorDevoluciones/ingresos*100).toFixed(1)}% de ventas</div>`
+            : ''}
+        </div>
+      </div>
+      <div class="fin-row" style="padding:14px 0 10px">
+        <div>
+          <div class="fin-total">= Utilidad</div>
+          <div class="fin-hint">Margen: ${margenUtil.toFixed(1)}%</div>
+        </div>
+        <div class="fin-result ${utilidad >= 0 ? 'green' : 'red'}">${fmt(utilidad)}</div>
+      </div>
+      <div class="fin-bar">
+        <div class="fin-bar-seg red" style="width:${pctCogs}%"></div>
+        <div class="fin-bar-seg orange" style="width:${pctDevs}%"></div>
+        <div class="fin-bar-seg ${utilidad > 0 ? 'green' : 'empty'}" style="flex:1"></div>
+      </div>
+      <div class="fin-bar-labels">
+        <span>🌾 ${ingresos > 0 ? (cogs/ingresos*100).toFixed(0) : 0}%</span>
+        ${valorDevoluciones > 0 ? `<span>↩️ ${(valorDevoluciones/ingresos*100).toFixed(0)}%</span>` : ''}
+        <span>✅ ${pctUtil}%</span>
+      </div>
+    </div>`;
+}
+
+// ── Cuadro 2: DISTRIBUCIÓN DE UTILIDAD ──────────────────────
+// Parte desde la utilidad del C1. Muestra cómo se distribuye en cascada.
+function _renderCuadro2(f){
+  const { utilidad, gastosPorCat, totalDistribucion, utilidadLibre } = f;
+
+  const items = [
+    { label:'📋 Deudas / Créditos', cat:'deuda',          color:'var(--red)'    },
+    { label:'🚗 Transporte',        cat:'transporte',      color:'#38bdf8'       },
+    { label:'🔧 Mantenimiento',     cat:'mantenimiento',   color:'#fb923c'       },
+    { label:'🧾 Impuestos',         cat:'impuestos',       color:'#f87171'       },
+    { label:'📌 Otros',             cat:'otro',            color:'var(--muted)'  },
+  ]
+  .map(item => ({ ...item, monto: gastosPorCat[item.cat] || 0 }))
+  .filter(item => item.monto > 0);
+
+  const vacioHTML = `
+    <div style="padding:24px 16px;text-align:center">
+      <div style="font-size:32px;margin-bottom:10px;opacity:0.35">💸</div>
+      <div class="fin-hint" style="line-height:1.7">
+        Aquí verás cómo se gasta tu utilidad.<br>
+        Registra <strong style="color:var(--amber)">deudas, arreglos, transporte</strong><br>
+        con el botón <strong style="color:var(--amber)">＋ → Gasto</strong>
+      </div>
+    </div>`;
+
+  const cascadaHTML = (() => {
+    let saldo = utilidad;
+    return items.map(item => {
+      saldo -= item.monto;
+      const pct    = utilidad > 0 ? (item.monto / utilidad * 100).toFixed(0) : 0;
+      const pctBar = utilidad > 0 ? Math.max(0, saldo / utilidad * 100).toFixed(1) : 0;
+      const col    = saldo > utilidad * 0.6 ? 'var(--green)'  :
+                     saldo > utilidad * 0.3 ? 'var(--amber)'  :
+                     saldo >= 0             ? 'var(--orange)' : 'var(--red)';
+      return `
+        <div style="padding:11px 16px;border-bottom:1px solid var(--border)">
+          <div class="fin-row" style="margin-bottom:5px">
+            <div style="display:flex;align-items:center;gap:5px">
+              <span style="font-size:14px;font-weight:900;color:var(--red)">−</span>
+              <span class="fin-label">${item.label}</span>
+            </div>
+            <div>
+              <span class="fin-val" style="color:${item.color}">−${fmt(item.monto)}</span>
+              <span class="fin-hint" style="margin-left:4px">${pct}%</span>
+            </div>
+          </div>
+          <div class="fin-bar" style="margin-bottom:3px">
+            <div style="height:100%;width:${pctBar}%;background:${col};border-radius:4px;transition:width 0.4s"></div>
+          </div>
+          <div class="fin-bar-labels">
+            <span>Queda</span>
+            <span style="font-weight:700;color:${col}">${fmt(saldo)}</span>
+          </div>
+        </div>`;
+    }).join('');
+  })();
+
+  const resumenHTML = `
+    <div style="padding:14px 16px;background:var(--s2);border-radius:0 0 var(--r) var(--r)">
+      <div class="fin-row" style="margin-bottom:8px">
+        <div>
+          <div class="fin-total">${utilidadLibre >= 0 ? '✅ Utilidad libre' : '⚠️ Déficit'}</div>
+          <div class="fin-hint">Distribuiste ${fmt(totalDistribucion)}</div>
+        </div>
+        <div class="fin-result ${utilidadLibre >= 0 ? 'green' : 'red'}">${fmt(utilidadLibre)}</div>
+      </div>
+      <div class="fin-bar">
+        <div class="fin-bar-seg orange" style="width:${utilidad>0?Math.min(100,totalDistribucion/utilidad*100).toFixed(1):0}%"></div>
+        <div class="fin-bar-seg ${utilidadLibre >= 0 ? 'green' : 'red'}" style="flex:1"></div>
+      </div>
+      <div class="fin-bar-labels">
+        <span>Gastado ${utilidad > 0 ? (totalDistribucion/utilidad*100).toFixed(0) : 0}%</span>
+        <span>Libre ${utilidad > 0 ? Math.max(0,utilidadLibre/utilidad*100).toFixed(0) : 0}%</span>
+      </div>
+    </div>`;
+
+  document.getElementById('dash-pl-c2').innerHTML = `
+    <div class="card-hd">
+      <h3>💵 Distribución de utilidad</h3>
+      <span class="badge badge-green" style="font-size:10px">Desde ${fmt(utilidad)}</span>
+    </div>
+    ${items.length === 0
+      ? vacioHTML
+      : `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+           <span class="fin-hint">Utilidad disponible</span>
+           <span class="fin-val green">${fmt(utilidad)}</span>
+         </div>
+         <div style="padding:8px 16px 0"><div style="height:6px;background:var(--green);border-radius:3px"></div></div>
+         ${cascadaHTML}
+         ${resumenHTML}`}`;
+}
+
+// ── Cuadro 3: DISTRIBUCIÓN DEL COSTO ─────────────────────────
+// Parte desde el costo de lo vendido (cogs). Muestra cuánto pesa cada gasto.
+function _renderCuadro3(f){
+  const { cogs, gastosPorCat } = f;
+  if(cogs === 0) { document.getElementById('dash-pl-c3').innerHTML = ''; return; }
+
+  const items = [
+    { label:'👷 Nómina',             cat:'nomina',       color:'var(--purple)' },
+    { label:'🏠 Arriendo',           cat:'arriendo',     color:'var(--blue)'   },
+    { label:'💡 Servicios públicos', cat:'servicios',    color:'var(--amber)'  },
+    { label:'🌿 Materia prima',       cat:'materia_prima',color:'var(--green)'  },
+    { label:'📣 Publicidad',         cat:'publicidad',   color:'#f472b6'       },
+  ]
+  .map(item => ({ ...item, monto: gastosPorCat[item.cat] || 0 }))
+  .filter(item => item.monto > 0);
+
+  const vacioHTML = `
+    <div style="padding:24px 16px;text-align:center">
+      <div style="font-size:32px;margin-bottom:10px;opacity:0.35">⚙️</div>
+      <div class="fin-hint" style="line-height:1.7">
+        Registra nómina, arriendo, servicios<br>
+        con <strong style="color:var(--amber)">＋ → Gasto</strong> para ver<br>
+        cómo se distribuye el costo.
+      </div>
+    </div>`;
+
+  const cascadaHTML = (() => {
+    let saldo = cogs;
+    return items.map(item => {
+      saldo -= item.monto;
+      const pct    = cogs > 0 ? (item.monto / cogs * 100).toFixed(0) : 0;
+      const pctBar = cogs > 0 ? Math.max(0, saldo / cogs * 100).toFixed(1) : 0;
+      const col    = saldo > cogs * 0.6 ? 'var(--green)'  :
+                     saldo > cogs * 0.3 ? 'var(--amber)'  :
+                     saldo >= 0         ? 'var(--orange)' : 'var(--red)';
+      return `
+        <div style="padding:11px 16px;border-bottom:1px solid var(--border)">
+          <div class="fin-row" style="margin-bottom:4px">
+            <div style="display:flex;align-items:center;gap:5px">
+              <span style="font-size:14px;font-weight:900;color:var(--red)">−</span>
+              <span class="fin-label">${item.label}</span>
+            </div>
+            <div>
+              <span class="fin-val" style="color:${item.color}">−${fmt(item.monto)}</span>
+              <span class="fin-hint" style="margin-left:4px">${pct}%</span>
+            </div>
+          </div>
+          <div class="fin-bar" style="margin-bottom:3px">
+            <div style="height:100%;width:${pctBar}%;background:${col};border-radius:4px;transition:width 0.4s"></div>
+          </div>
+          <div class="fin-bar-labels">
+            <span>Queda</span>
+            <span style="font-weight:700;color:${col}">${fmt(saldo)}</span>
+          </div>
+        </div>`;
+    }).join('');
+  })();
+
+  const totalCostoItems = items.reduce((s,x) => s + x.monto, 0);
+  const costoSaldo      = cogs - totalCostoItems;
+
+  document.getElementById('dash-pl-c3').innerHTML = `
+    <div class="card-hd">
+      <h3>⚙️ Distribución del costo</h3>
+      <span class="badge badge-orange" style="font-size:10px">Desde ${fmt(cogs)}</span>
+    </div>
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <span class="fin-hint">Costo de lo vendido (base)</span>
+      <span class="fin-val orange">${fmt(cogs)}</span>
+    </div>
+    <div style="padding:8px 16px 0"><div style="height:6px;background:var(--orange);border-radius:3px"></div></div>
+    ${items.length === 0 ? vacioHTML : cascadaHTML}
+    <div style="padding:14px 16px;background:var(--s2);border-radius:0 0 var(--r) var(--r)">
+      <div class="fin-row" style="margin-bottom:8px">
+        <div>
+          <div class="fin-total">${costoSaldo >= 0 ? '🟡 Saldo del costo' : '🔴 Costo supera producción'}</div>
+          <div class="fin-hint">Distribuiste ${fmt(totalCostoItems)} del costo</div>
+        </div>
+        <div class="fin-result ${costoSaldo >= 0 ? 'amber' : 'red'}">${fmt(costoSaldo)}</div>
+      </div>
+      <div class="fin-bar">
+        <div class="fin-bar-seg red" style="width:${cogs>0?Math.min(100,totalCostoItems/cogs*100).toFixed(1):0}%"></div>
+        <div class="fin-bar-seg ${costoSaldo >= 0 ? 'amber' : 'red'}" style="flex:1"></div>
+      </div>
+      <div class="fin-bar-labels">
+        <span>Distribuido ${cogs > 0 ? (totalCostoItems/cogs*100).toFixed(0) : 0}%</span>
+        <span>Saldo ${cogs > 0 ? Math.max(0,costoSaldo/cogs*100).toFixed(0) : 0}%</span>
+      </div>
+    </div>`;
+}
+
+// ── Stats del header del Dashboard ────────────────────────────
+function _renderDashStats(f, mes){
+  const { ingresos, utilidad, margenUtil, costoOp,
+          valorDevoluciones, cantidadDevol, ventasMes } = f;
+  const stockCritico = db.productos.filter(p => p.stock <= (p.stockMin || 0)).length;
+
+  document.getElementById('dash-stats').innerHTML = `
+    <div class="stats-row">
+      <div class="stat-box amber">
+        <div class="stat-lbl">Ingresos mes</div>
+        <div class="stat-val sm">${fmt(ingresos)}</div>
+        <div class="stat-hint">${ventasMes.length} ventas</div>
+      </div>
+      <div class="stat-box ${utilidad >= 0 ? 'green' : 'red'}">
+        <div class="stat-lbl">Utilidad</div>
+        <div class="stat-val sm">${fmt(utilidad)}</div>
+        <div class="stat-hint">Margen: ${margenUtil.toFixed(1)}%</div>
+      </div>
+    </div>
+    <div class="stats-row three" style="margin-bottom:12px">
+      <div class="stat-box red">
+        <div class="stat-lbl">Costo op.</div>
+        <div class="stat-val sm" style="font-size:14px">${fmt(costoOp)}</div>
+      </div>
+      <div class="stat-box orange">
+        <div class="stat-lbl">Devol.</div>
+        <div class="stat-val sm" style="font-size:14px">${cantidadDevol}</div>
+      </div>
+      <div class="stat-box ${stockCritico > 0 ? 'red' : 'blue'}">
+        <div class="stat-lbl">Stock bajo</div>
+        <div class="stat-val sm" style="font-size:14px">${stockCritico}</div>
+      </div>
+    </div>`;
+}
+
+// ── Alertas del Dashboard (gastos pendientes y stock crítico) ─
+function _renderDashAlertas(f){
+  let html = '';
+  const pendientes = db.gastos.filter(g => g.estado === 'pendiente' || g.estado === 'vencido');
+
+  if(pendientes.length){
+    const totalPend = pendientes.reduce((s, g) => s + g.monto, 0);
+    html += `
+      <div class="card mb12" style="border-color:var(--red)">
+        <div class="card-hd" style="border-color:var(--red)">
+          <h3 style="color:var(--red)">⚠️ Gastos pendientes / vencidos</h3>
+        </div>
+        ${pendientes.slice(0,3).map(g => `
+          <div class="list-item" style="cursor:default">
+            <div class="cat-icon" style="background:${GASTO_CAT[g.cat]?.color||'var(--muted)'}22">
+              ${GASTO_CAT[g.cat]?.icon||'📌'}
+            </div>
+            <div class="li-body">
+              <div class="li-title">${g.desc}</div>
+              <div class="li-sub">${g.fecha}</div>
+            </div>
+            <div class="li-right">
+              <div class="li-amt text-red">${fmt(g.monto)}</div>
+              <div class="li-date"><span class="badge badge-red">${g.estado}</span></div>
+            </div>
+          </div>`).join('')}
+        ${pendientes.length > 3
+          ? `<div style="padding:10px 16px;font-size:11px;color:var(--muted);text-align:center">
+               +${pendientes.length - 3} más por ${fmt(totalPend)}
+             </div>`
+          : ''}
+      </div>`;
+  }
+
+  const stockCritico = db.productos.filter(p => p.stock <= (p.stockMin || 0));
+  if(stockCritico.length){
+    html += `
+      <div class="card mb12" style="border-color:var(--amber)">
+        <div class="card-hd" style="border-color:var(--amber)">
+          <h3 style="color:var(--amber)">📦 Stock crítico</h3>
+        </div>
+        ${stockCritico.slice(0,3).map(p => `
+          <div class="list-item" style="cursor:default">
+            <div class="li-body">
+              <div class="li-title">${p.nombre}</div>
+              <div class="li-sub">${p.unidad||'Unidad'}</div>
+            </div>
+            <div class="li-right">
+              <div class="li-amt text-red">${p.stock}</div>
+              <div class="li-date">mín: ${p.stockMin||0}</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  document.getElementById('dash-alerts').innerHTML = html;
 }
 
 function renderDashChart(){
@@ -3319,76 +3556,42 @@ function renderCostos(){
   const rango = getRangoFechas(costoPeriodo);
   document.getElementById('nomina-fecha-label').textContent = rango.label;
 
-  // ── Ingresos del período ──
-  const ventas = db.ventas.filter(v => v.fecha >= rango.desde && v.fecha <= rango.hasta);
-  const ingresos = ventas.reduce((s,v)=>s+v.total, 0);
+  // ── Un solo cálculo usando el motor financiero centralizado ──
+  const f = calcularRango(rango.desde, rango.hasta);
+  const { ingresos, cogs, costoOp, utilidad, gastosPorCat, ventasR } = f;
 
-  // ── COGS (costo de producción de lo vendido) ──
-  const cogs = ventas.reduce((s,v)=>s+v.costoTotal, 0);
-
-  // ── Gastos registrados del período por categoría ──
-  const gastosP = db.gastos.filter(g => g.fecha >= rango.desde && g.fecha <= rango.hasta);
-
-  // ── Nómina del período (empleados por día * días trabajados en rango) ──
+  // ── Nómina del período (pagada vs pendiente) ──────────────
   let nominaPagada = 0;
   let nominaPendiente = 0;
   db.empleados.forEach(e => {
     const asist = e.asistencia || {};
-    // Días trabajados dentro del rango
     Object.keys(asist).forEach(fecha => {
       if(fecha < rango.desde || fecha > rango.hasta) return;
       const est = asist[fecha];
       if(est !== 'worked' && est !== 'half') return;
-      const mult = est === 'half' ? 0.5 : 1;
-      const valorDia = e.tipoSalario==='mes' ? (e.salario/26) :
-                       e.tipoSalario==='semana' ? (e.salario/6) : e.salario;
-      const monto = valorDia * mult;
-      // ¿Está marcado como pagado ese día?
-      const pagoKey = `pago_${e.id}_${fecha}`;
-      if(localStorage.getItem(pagoKey)) nominaPagada += monto;
-      else nominaPendiente += monto;
+      const mult     = est === 'half' ? 0.5 : 1;
+      const valorDia = e.tipoSalario==='mes'    ? (e.salario/26) :
+                       e.tipoSalario==='semana' ? (e.salario/6)  : e.salario;
+      const monto    = Math.round(valorDia * mult);
+      if(localStorage.getItem(`pago_${e.id}_${fecha}`)) nominaPagada    += monto;
+      else                                               nominaPendiente += monto;
     });
   });
   const nominaTotal = nominaPagada + nominaPendiente;
 
-  // ── Gastos por categoría ──
-  const arriendo    = gastosP.filter(g=>g.cat==='arriendo').reduce((s,g)=>s+g.monto,0);
-  const servicios   = gastosP.filter(g=>g.cat==='servicios').reduce((s,g)=>s+g.monto,0);
-  const materiaP    = gastosP.filter(g=>g.cat==='materia_prima').reduce((s,g)=>s+g.monto,0);
-  const deudas      = gastosP.filter(g=>g.cat==='deuda').reduce((s,g)=>s+g.monto,0);
-  const transporte  = gastosP.filter(g=>g.cat==='transporte').reduce((s,g)=>s+g.monto,0);
-  const otros       = gastosP.filter(g=>!['arriendo','servicios','materia_prima','deuda','transporte','nomina'].includes(g.cat)).reduce((s,g)=>s+g.monto,0);
-  const nominaGasto = gastosP.filter(g=>g.cat==='nomina').reduce((s,g)=>s+g.monto,0);
-
-  const totalCostos = cogs + nominaTotal + arriendo + servicios + materiaP + deudas + transporte + otros + nominaGasto;
+  // ── Total de costos del período ───────────────────────────
+  const totalCostos  = costoOp + (gastosPorCat.deuda||0) + (gastosPorCat.transporte||0);
   const gananciaReal = ingresos - totalCostos;
-  const pctCostos = ingresos > 0 ? (totalCostos/ingresos*100) : 0;
+  const pctCostos    = ingresos > 0 ? (totalCostos / ingresos * 100) : 0;
 
-  // ── SEMÁFORO ──
-  let semColor, semIcon, semMsg, semBorder;
-  if(ingresos === 0){
-    semColor='var(--muted)'; semIcon='⚪'; semBorder='var(--border)';
-    semMsg = 'Sin ventas registradas en este período.';
-  } else if(pctCostos <= 60){
-    semColor='var(--green)'; semIcon='🟢'; semBorder='var(--green)';
-    semMsg = `Excelente — los costos son el ${pctCostos.toFixed(1)}% de los ingresos.`;
-  } else if(pctCostos <= 80){
-    semColor='var(--amber)'; semIcon='🟡'; semBorder='var(--amber-d)';
-    semMsg = `Atención — los costos son el ${pctCostos.toFixed(1)}% de los ingresos.`;
-  } else if(pctCostos <= 100){
-    semColor='var(--orange)'; semIcon='🟠'; semBorder='var(--orange)';
-    semMsg = `Cuidado — los costos se están comiendo casi todo lo que entra.`;
-  } else {
-    semColor='var(--red)'; semIcon='🔴'; semBorder='var(--red)';
-    semMsg = `Pérdida — los costos superan los ingresos del período.`;
-  }
-
+  // ── Semáforo de salud financiera ─────────────────────────
+  const semaforo = _calcularSemaforo(ingresos, pctCostos, ventasR.length, rango.label);
   document.getElementById('costo-semaforo').innerHTML = `
-    <div style="padding:16px;display:flex;align-items:center;gap:14px;border-left:4px solid ${semBorder}">
-      <div style="font-size:32px">${semIcon}</div>
+    <div style="padding:16px;display:flex;align-items:center;gap:14px;border-left:4px solid ${semaforo.border}">
+      <div style="font-size:32px">${semaforo.icon}</div>
       <div style="flex:1">
-        <div style="font-size:14px;font-weight:700;color:${semColor};margin-bottom:3px">${semMsg}</div>
-        <div style="font-size:12px;color:var(--muted)">${rango.label} · ${ventas.length} ventas</div>
+        <div style="font-size:14px;font-weight:700;color:${semaforo.color};margin-bottom:3px">${semaforo.msg}</div>
+        <div style="font-size:12px;color:var(--muted)">${rango.label} · ${ventasR.length} ventas</div>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;border-top:1px solid var(--border)">
@@ -3406,72 +3609,83 @@ function renderCostos(){
       </div>
     </div>`;
 
-  // ── DISTRIBUCIÓN EN BARRAS ──
+  // ── Barras de distribución ────────────────────────────────
   const partidas = [
-    { label:'🌾 Costo de producción (COGS)', monto: cogs,         color:'var(--orange)', cat:'cogs' },
-    { label:'👷 Nómina empleados',           monto: nominaTotal,  color:'var(--purple)', cat:'nomina' },
-    { label:'🏠 Arriendo',                   monto: arriendo,     color:'var(--blue)',   cat:'arriendo' },
-    { label:'💡 Servicios públicos',          monto: servicios,    color:'var(--amber)',  cat:'servicios' },
-    { label:'🌾 Materia prima (gastos)',      monto: materiaP,     color:'var(--green)',  cat:'materia' },
-    { label:'📋 Deudas / Créditos',          monto: deudas,       color:'var(--red)',    cat:'deudas' },
-    { label:'🚗 Transporte',                 monto: transporte,   color:'#38bdf8',       cat:'transp' },
-    { label:'📌 Otros gastos',               monto: otros+nominaGasto, color:'var(--muted)', cat:'otros' },
-  ].filter(p=>p.monto > 0);
+    { label:'🌾 Costo de producción (COGS)', monto: cogs,                            color:'var(--orange)' },
+    { label:'👷 Nómina empleados',           monto: nominaTotal,                     color:'var(--purple)' },
+    { label:'🏠 Arriendo',                   monto: gastosPorCat.arriendo    || 0,   color:'var(--blue)'   },
+    { label:'💡 Servicios públicos',          monto: gastosPorCat.servicios   || 0,   color:'var(--amber)'  },
+    { label:'🌿 Materia prima',               monto: gastosPorCat.materia_prima || 0, color:'var(--green)'  },
+    { label:'📋 Deudas / Créditos',          monto: gastosPorCat.deuda       || 0,   color:'var(--red)'    },
+    { label:'🚗 Transporte',                 monto: gastosPorCat.transporte  || 0,   color:'#38bdf8'       },
+    { label:'📌 Otros gastos',               monto: gastosPorCat.otro        || 0,   color:'var(--muted)'  },
+  ].filter(p => p.monto > 0);
 
-  const maxMonto = Math.max(...partidas.map(p=>p.monto), 1);
-
+  const maxMonto = Math.max(...partidas.map(p => p.monto), 1);
   document.getElementById('costo-distribucion').innerHTML = partidas.length === 0
     ? '<div class="empty" style="padding:24px"><p>Sin costos registrados en este período.</p></div>'
     : partidas.map(p => {
-        const pct = ingresos > 0 ? (p.monto/ingresos*100).toFixed(1) : '—';
+        const pct  = ingresos > 0 ? (p.monto/ingresos*100).toFixed(1) : '—';
         const barW = (p.monto/maxMonto*100).toFixed(1);
         return `<div style="padding:12px 16px;border-bottom:1px solid var(--border)">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:13px;font-weight:600;color:var(--cream)">${p.label}</span>
+          <div class="fin-row" style="margin-bottom:6px">
+            <span class="fin-label">${p.label}</span>
             <div style="text-align:right">
-              <span style="font-size:13px;font-weight:700;color:${p.color}">${fmt(p.monto)}</span>
-              <span style="font-size:10px;color:var(--muted);margin-left:5px">${pct}%</span>
+              <span class="fin-val" style="color:${p.color};font-size:13px">${fmt(p.monto)}</span>
+              <span class="fin-hint" style="margin-left:5px">${pct}%</span>
             </div>
           </div>
           <div class="progress-bar">
             <div class="progress-fill" style="width:${barW}%;background:${p.color}"></div>
           </div>
         </div>`;
-      }).join('') + `<div style="padding:14px 16px;background:var(--s2);display:flex;justify-content:space-between;align-items:center">
+      }).join('') + `
+      <div style="padding:14px 16px;background:var(--s2);display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;font-weight:700;color:var(--cream)">Total costos</span>
-        <span style="font-family:'DM Serif Display',serif;font-size:16px;color:var(--red)">${fmt(totalCostos)}</span>
+        <span class="fin-val red" style="font-size:16px">${fmt(totalCostos)}</span>
       </div>`;
 
-  // ── TABLA DETALLE ──
-  document.getElementById('costo-detalle').innerHTML = `
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-      <span class="f13 text-muted">Ventas registradas</span><span class="f13 fw6">${ventas.length}</span>
-    </div>
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-      <span class="f13 text-muted">Ingresos brutos</span><span class="f13 fw6 text-amber">${fmt(ingresos)}</span>
-    </div>
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-      <span class="f13 text-muted">— Costo producción (COGS)</span><span class="f13 text-red">${fmt(cogs)}</span>
-    </div>
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-      <span class="f13 text-muted" style="padding-left:8px">= Ganancia bruta</span><span class="f13 fw6 text-green">${fmt(ingresos-cogs)}</span>
-    </div>
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-      <span class="f13 text-muted">— Nómina (${nominaPagada>0?'pagada: '+fmt(nominaPagada):''}${nominaPendiente>0?' · pendiente: '+fmt(nominaPendiente):''})</span>
-      <span class="f13 text-red">${fmt(nominaTotal)}</span>
-    </div>
-    ${arriendo>0?`<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span class="f13 text-muted">— Arriendo</span><span class="f13 text-red">${fmt(arriendo)}</span></div>`:''}
-    ${servicios>0?`<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span class="f13 text-muted">— Servicios públicos</span><span class="f13 text-red">${fmt(servicios)}</span></div>`:''}
-    ${materiaP>0?`<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span class="f13 text-muted">— Materia prima</span><span class="f13 text-red">${fmt(materiaP)}</span></div>`:''}
-    ${deudas>0?`<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span class="f13 text-muted">— Deudas / Créditos</span><span class="f13 text-red">${fmt(deudas)}</span></div>`:''}
-    ${(otros+nominaGasto)>0?`<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span class="f13 text-muted">— Otros gastos</span><span class="f13 text-red">${fmt(otros+nominaGasto)}</span></div>`:''}
+  // ── Tabla detalle (cascada de cuentas) ────────────────────
+  const detalleRows = [
+    { label:'Ventas registradas',          val: ventasR.length,       color:'var(--cream)', prefix:'' },
+    { label:'Ingresos brutos',             val: fmt(ingresos),        color:'var(--amber)', prefix:'' },
+    { label:'— Costo producción (COGS)',   val: fmt(cogs),            color:'var(--red)',   prefix:'' },
+    { label:'= Ganancia bruta',            val: fmt(ingresos-cogs),   color:'var(--green)', prefix:'', bold:true },
+    { label:`— Nómina (pagada: ${fmt(nominaPagada)}${nominaPendiente>0?' · pend: '+fmt(nominaPendiente):''})`,
+                                           val: fmt(nominaTotal),     color:'var(--red)',   prefix:'' },
+    ...(gastosPorCat.arriendo    > 0 ? [{ label:'— Arriendo',        val:fmt(gastosPorCat.arriendo),     color:'var(--red)', prefix:'' }] : []),
+    ...(gastosPorCat.servicios   > 0 ? [{ label:'— Servicios',       val:fmt(gastosPorCat.servicios),    color:'var(--red)', prefix:'' }] : []),
+    ...(gastosPorCat.materia_prima>0 ? [{ label:'— Materia prima',   val:fmt(gastosPorCat.materia_prima),color:'var(--red)', prefix:'' }] : []),
+    ...(gastosPorCat.deuda       > 0 ? [{ label:'— Deudas',          val:fmt(gastosPorCat.deuda),        color:'var(--red)', prefix:'' }] : []),
+    ...(gastosPorCat.otro        > 0 ? [{ label:'— Otros gastos',    val:fmt(gastosPorCat.otro),         color:'var(--red)', prefix:'' }] : []),
+  ];
+
+  document.getElementById('costo-detalle').innerHTML =
+    detalleRows.map(r => `
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
+        <span class="f13 text-muted">${r.label}</span>
+        <span class="f13 ${r.bold?'fw7':''}" style="color:${r.color}">${r.val}</span>
+      </div>`).join('') + `
     <div style="padding:14px 16px;background:var(--s2);display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:14px;font-weight:700;color:var(--cream)">= GANANCIA REAL</span>
-      <span style="font-family:'DM Serif Display',serif;font-size:20px;color:${gananciaReal>=0?'var(--green)':'var(--red)'}">${fmt(gananciaReal)}</span>
+      <span class="fin-result ${gananciaReal>=0?'green':'red'}" style="font-size:20px">${fmt(gananciaReal)}</span>
     </div>`;
 
-  // ── NÓMINA DEL DÍA — marcar pagado ──
+  // ── Nómina del día ────────────────────────────────────────
   renderNominaPago(rango);
+}
+
+// ── Semáforo de salud financiera (función pura) ────────────────
+function _calcularSemaforo(ingresos, pctCostos, numVentas, label){
+  if(ingresos === 0)
+    return { color:'var(--muted)',  icon:'⚪', border:'var(--border)',  msg:'Sin ventas registradas en este período.' };
+  if(pctCostos <= 60)
+    return { color:'var(--green)',  icon:'🟢', border:'var(--green)',   msg:`Excelente — los costos son el ${pctCostos.toFixed(1)}% de los ingresos.` };
+  if(pctCostos <= 80)
+    return { color:'var(--amber)',  icon:'🟡', border:'var(--amber-d)', msg:`Atención — los costos son el ${pctCostos.toFixed(1)}% de los ingresos.` };
+  if(pctCostos <= 100)
+    return { color:'var(--orange)', icon:'🟠', border:'var(--orange)',  msg:'Cuidado — los costos se están comiendo casi todo lo que entra.' };
+  return   { color:'var(--red)',    icon:'🔴', border:'var(--red)',     msg:'Pérdida — los costos superan los ingresos del período.' };
 }
 
 function renderNominaPago(rango){
@@ -3584,51 +3798,7 @@ function togglePagoNomina(pagoKey){
   renderCostos();
 }
 
-function pagarTodosEmpleado(empId, desde, hasta){
-  const e = db.empleados.find(x=>x.id===empId);
-  if(!e) return;
-  const asist = e.asistencia || {};
-  let total = 0;
-  const diasPagados = [];
 
-  Object.keys(asist).sort().forEach(fecha=>{
-    if(fecha < desde || fecha > hasta) return;
-    const est = asist[fecha];
-    if(est !== 'worked' && est !== 'half') return;
-    const pagoKey = `pago_${e.id}_${fecha}`;
-    if(localStorage.getItem(pagoKey)) return; // ya pagado
-    const mult = est==='half' ? 0.5 : 1;
-    const valorDia = e.tipoSalario==='mes' ? Math.round(e.salario/26) :
-                     e.tipoSalario==='semana' ? Math.round(e.salario/6) : e.salario;
-    total += Math.round(valorDia * mult);
-    diasPagados.push({ pagoKey, fecha });
-  });
-
-  if(!total){ toast('No hay días pendientes','err'); return; }
-
-  if(!confirm(`¿Registrar pago a ${e.nombre}?\n\n${diasPagados.length} días → ${fmt(total)}\nPeriodo: ${desde} al ${hasta}\n\nEsto registrará el gasto en nómina.`)) return;
-
-  // Marcar días como pagados
-  diasPagados.forEach(d=>localStorage.setItem(d.pagoKey,'1'));
-
-  // Registrar como gasto real en la base de datos
-  db.gastos.push({
-    id: uid(),
-    desc: `Nómina ${e.nombre} (${diasPagados.length} días)`,
-    cat: 'nomina',
-    monto: total,
-    fecha: hasta, // fecha del último día del período
-    recurrencia: 'unico',
-    proveedor: e.nombre,
-    estado: 'pagado',
-    notas: `Período: ${desde} al ${hasta} · ${diasPagados.length} días trabajados`
-  });
-  saveDB();
-
-  renderCostos();
-  renderDashboard();
-  toast(`✓ Pago registrado: ${fmt(total)}`);
-}
 
 // ═══════════════════════════════════════════════
 // ANÁLISIS
@@ -3646,87 +3816,135 @@ function renderAnalisis(){
 }
 
 function renderAnalisisCharts(){
-  const months=getLast6Months();
-  const labels=months.map(monthLabel);
+  // ── Usa el motor financiero — sin recalcular nada ─────────
+  const historico = calcularHistorico6Meses();
+  const labels    = historico.map(m => m.label);
 
-  if(analisisTab==='financiero'){
+  if(analisisTab === 'financiero'){
     // Ingresos vs COGS vs Gastos
     mkChart('chart-icg','bar',{
       labels,
       datasets:[
-        {label:'Ingresos',data:months.map(m=>db.ventas.filter(v=>v.fecha.startsWith(m)).reduce((s,v)=>s+v.total,0)),backgroundColor:'rgba(232,168,56,0.8)',borderRadius:5},
-        {label:'COGS',data:months.map(m=>db.ventas.filter(v=>v.fecha.startsWith(m)).reduce((s,v)=>s+v.costoTotal,0)),backgroundColor:'rgba(224,85,85,0.7)',borderRadius:5},
-        {label:'Gastos Op.',data:months.map(m=>db.gastos.filter(g=>g.fecha.startsWith(m)).reduce((s,g)=>s+g.monto,0)),backgroundColor:'rgba(232,120,48,0.7)',borderRadius:5},
+        { label:'Ingresos',   data: historico.map(m => m.ingresos),    backgroundColor:'rgba(232,168,56,0.8)', borderRadius:5 },
+        { label:'COGS',       data: historico.map(m => m.cogs),         backgroundColor:'rgba(224,85,85,0.7)',  borderRadius:5 },
+        { label:'Gastos Op.', data: historico.map(m => m.totalGastos),  backgroundColor:'rgba(232,120,48,0.7)', borderRadius:5 },
       ]
-    },{unit:'$',legend:true});
+    },{ unit:'$', legend:true });
 
-    // Ganancia neta mensual
-    const netaData=months.map(m=>{
-      const gb=db.ventas.filter(v=>v.fecha.startsWith(m)).reduce((s,v)=>s+v.ganancia,0);
-      const gs=db.gastos.filter(g=>g.fecha.startsWith(m)).reduce((s,g)=>s+g.monto,0);
-      return gb-gs;
-    });
+    // Utilidad mensual (usa la utilidad ya calculada — no recalcula)
     mkChart('chart-neta','bar',{
       labels,
-      datasets:[{label:'Ganancia neta',data:netaData,backgroundColor:netaData.map(v=>v>=0?'rgba(82,201,122,0.8)':'rgba(224,85,85,0.8)'),borderRadius:5}]
-    },{unit:'$'});
+      datasets:[{
+        label:'Utilidad',
+        data: historico.map(m => m.utilidad),
+        backgroundColor: historico.map(m => m.utilidad >= 0 ? 'rgba(82,201,122,0.8)' : 'rgba(224,85,85,0.8)'),
+        borderRadius: 5
+      }]
+    },{ unit:'$' });
 
-    // Anual
-    const yrs=[new Date().getFullYear()-2,new Date().getFullYear()-1,new Date().getFullYear()];
+    // Comparativa anual
+    const yrs = [
+      new Date().getFullYear() - 2,
+      new Date().getFullYear() - 1,
+      new Date().getFullYear()
+    ];
     mkChart('chart-anual','bar',{
-      labels:yrs.map(String),
+      labels: yrs.map(String),
       datasets:[
-        {label:'Ingresos',data:yrs.map(y=>db.ventas.filter(v=>v.fecha.startsWith(y)).reduce((s,v)=>s+v.total,0)),backgroundColor:'rgba(232,168,56,0.8)',borderRadius:8},
-        {label:'Ganancia',data:yrs.map(y=>{ const gb=db.ventas.filter(v=>v.fecha.startsWith(y)).reduce((s,v)=>s+v.ganancia,0); const gs=db.gastos.filter(g=>g.fecha.startsWith(y)).reduce((s,g)=>s+g.monto,0); return gb-gs; }),backgroundColor:'rgba(82,201,122,0.8)',borderRadius:8},
+        {
+          label:'Ingresos',
+          data: yrs.map(y => {
+            const meses = Array.from({length:12},(_,i)=>`${y}-${String(i+1).padStart(2,'0')}`);
+            return meses.reduce((s,m) => s + calcularMes(m).ingresos, 0);
+          }),
+          backgroundColor:'rgba(232,168,56,0.8)', borderRadius:8
+        },
+        {
+          label:'Utilidad',
+          data: yrs.map(y => {
+            const meses = Array.from({length:12},(_,i)=>`${y}-${String(i+1).padStart(2,'0')}`);
+            return meses.reduce((s,m) => s + calcularMes(m).utilidad, 0);
+          }),
+          backgroundColor:'rgba(82,201,122,0.8)', borderRadius:8
+        },
       ]
-    },{unit:'$',legend:true});
+    },{ unit:'$', legend:true });
   }
 
-  if(analisisTab==='gastos'){
-    // Donut por categoría
-    const catTotals={};
-    db.gastos.forEach(g=>{ catTotals[g.cat]=(catTotals[g.cat]||0)+g.monto; });
-    const catKeys=Object.keys(catTotals).sort((a,b)=>catTotals[b]-catTotals[a]);
-    const colors=['#e8a838','#52c97a','#e05555','#4fa8e8','#e87830','#a855f7','#f87171','#34d399','#fb923c','#8a7d6e'];
+  if(analisisTab === 'gastos'){
+    // Donut por categoría — usa gastos reales sin recalcular
+    const catTotals = {};
+    db.gastos.forEach(g => {
+      catTotals[g.cat] = (catTotals[g.cat] || 0) + g.monto;
+    });
+    const catKeys = Object.keys(catTotals).sort((a,b) => catTotals[b] - catTotals[a]);
+    const colors  = ['#e8a838','#52c97a','#e05555','#4fa8e8','#e87830','#a855f7','#f87171','#34d399','#fb923c','#8a7d6e'];
     mkChart('chart-gastos-donut','doughnut',{
-      labels:catKeys.map(k=>GASTO_CAT[k]?.label||k),
-      datasets:[{data:catKeys.map(k=>catTotals[k]),backgroundColor:colors,borderWidth:2,borderColor:'#1f1b17'}]
-    },{legend:true});
+      labels: catKeys.map(k => GASTO_CAT[k]?.label || k),
+      datasets:[{ data: catKeys.map(k => catTotals[k]), backgroundColor:colors, borderWidth:2, borderColor:'#1f1b17' }]
+    },{ legend:true });
 
-    // Gastos por mes
+    // Gastos por mes — usa datos del histórico
     mkChart('chart-gastos-mes','bar',{
       labels,
-      datasets:[{label:'Gastos',data:months.map(m=>db.gastos.filter(g=>g.fecha.startsWith(m)).reduce((s,g)=>s+g.monto,0)),backgroundColor:'rgba(224,85,85,0.8)',borderRadius:5}]
-    },{unit:'$'});
+      datasets:[{
+        label:'Gastos',
+        data: historico.map(m => m.totalGastos),
+        backgroundColor:'rgba(224,85,85,0.8)', borderRadius:5
+      }]
+    },{ unit:'$' });
   }
 
-  if(analisisTab==='repartidores'){
-    const repLabels=db.repartidores.map(r=>r.nombre.split(' ')[0]);
+  if(analisisTab === 'repartidores'){
+    // Usa calcularPorRepartidor para cada rep — función centralizada
+    const reps = db.repartidores;
     mkChart('chart-rep-ing','bar',{
-      labels:repLabels,
+      labels: reps.map(r => r.nombre.split(' ')[0]),
       datasets:[
-        {label:'Ingresos',data:db.repartidores.map(r=>db.ventas.filter(v=>v.repartidorId===r.id).reduce((s,v)=>s+v.total,0)),backgroundColor:'rgba(232,168,56,0.8)',borderRadius:5},
-        {label:'Ganancia',data:db.repartidores.map(r=>db.ventas.filter(v=>v.repartidorId===r.id).reduce((s,v)=>s+v.ganancia,0)),backgroundColor:'rgba(82,201,122,0.8)',borderRadius:5},
+        {
+          label:'Ingresos',
+          data: reps.map(r => calcularPorRepartidor(r.id).ingresos),
+          backgroundColor:'rgba(232,168,56,0.8)', borderRadius:5
+        },
+        {
+          label:'Utilidad neta',
+          data: reps.map(r => calcularPorRepartidor(r.id).utilidadNeta),
+          backgroundColor:'rgba(82,201,122,0.8)', borderRadius:5
+        },
       ]
-    },{unit:'$',legend:true});
+    },{ unit:'$', legend:true });
 
     mkChart('chart-rep-efic','bar',{
-      labels:repLabels,
+      labels: reps.map(r => r.nombre.split(' ')[0]),
       datasets:[
-        {label:'Ventas (u)',data:db.repartidores.map(r=>db.ventas.filter(v=>v.repartidorId===r.id).reduce((s,v)=>s+v.cantidad,0)),backgroundColor:'rgba(79,168,232,0.8)',borderRadius:5},
-        {label:'Devol. (u)',data:db.repartidores.map(r=>db.devoluciones.filter(d=>d.repartidorId===r.id).reduce((s,d)=>s+d.cantidad,0)),backgroundColor:'rgba(224,85,85,0.7)',borderRadius:5},
+        {
+          label:'Ventas (u)',
+          data: reps.map(r => calcularPorRepartidor(r.id).unidades),
+          backgroundColor:'rgba(79,168,232,0.8)', borderRadius:5
+        },
+        {
+          label:'Devol. (u)',
+          data: reps.map(r => calcularPorRepartidor(r.id).cantidadDevol),
+          backgroundColor:'rgba(224,85,85,0.7)', borderRadius:5
+        },
       ]
-    },{unit:'unid',legend:true});
+    },{ unit:'unid', legend:true });
   }
 
-  if(analisisTab==='productos'){
-    const top=[...db.productos].sort((a,b)=>{
-      return db.ventas.filter(v=>v.productoId===b.id).reduce((s,v)=>s+v.cantidad,0)-db.ventas.filter(v=>v.productoId===a.id).reduce((s,v)=>s+v.cantidad,0);
-    }).slice(0,6);
+  if(analisisTab === 'productos'){
+    // Usa calcularPorProducto para cada producto
+    const top = [...db.productos]
+      .sort((a,b) => calcularPorProducto(b.id).unidades - calcularPorProducto(a.id).unidades)
+      .slice(0,6);
+
     mkChart('chart-top-prod','bar',{
-      labels:top.map(p=>p.nombre),
-      datasets:[{label:'Unidades',data:top.map(p=>db.ventas.filter(v=>v.productoId===p.id).reduce((s,v)=>s+v.cantidad,0)),backgroundColor:'rgba(79,168,232,0.8)',borderRadius:5}]
-    },{unit:'unid',extra:{indexAxis:'y'}});
+      labels: top.map(p => p.nombre),
+      datasets:[{
+        label:'Unidades',
+        data: top.map(p => calcularPorProducto(p.id).unidades),
+        backgroundColor:'rgba(79,168,232,0.8)', borderRadius:5
+      }]
+    },{ unit:'unid', extra:{ indexAxis:'y' } });
   }
 }
 
@@ -5021,7 +5239,7 @@ if(!localStorage.getItem('hapirium_deviceId')){
 
 // Iniciar app cuando Firebase esté disponible
 function waitForFirebase(cb, attempts=0){
-  if(typeof firebase !== 'undefined' && firebase.app){
+  if(typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length >= 0){
     cb();
   } else if(attempts < 20){
     setTimeout(()=>waitForFirebase(cb, attempts+1), 200);
@@ -5032,8 +5250,12 @@ function waitForFirebase(cb, attempts=0){
 }
 
 async function _startApp(){
-  // ── Configuración Firebase embebida ──
-  // Si no hay config guardada, usar la de PANADERIA BENDITO PAN automáticamente
+  // ── SIEMPRE requiere Firebase y login ──
+  // Limpiar cualquier modo local anterior que pudiera haber quedado
+  if(localStorage.getItem(FB_MODE_KEY) === 'local'){
+    localStorage.removeItem(FB_MODE_KEY);
+  }
+
   const DEFAULT_FB_CONFIG = {
     apiKey:            "AIzaSyDOZxNZrkyr0F7CuB10PEdRk3Ci89BHmcs",
     authDomain:        "panaderia-bendito-pan.firebaseapp.com",
@@ -5043,36 +5265,18 @@ async function _startApp(){
     appId:             "1:764179374292:web:07f5bccbc4dcfa9f465b41"
   };
 
-  const savedConfig = localStorage.getItem(FB_CONFIG_KEY);
-  const savedMode   = localStorage.getItem(FB_MODE_KEY);
-  const hasData     = localStorage.getItem(DB_KEY);
+  // Siempre guardar config y usar Firebase
+  localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(DEFAULT_FB_CONFIG));
+  localStorage.setItem(FB_MODE_KEY, 'firebase');
+  fbMode = 'firebase';
 
-  if(savedMode==='local'){
-    if(!hasData){
-      document.getElementById('screen-onboarding').style.display = 'block';
-    } else {
-      showApp();
-      renderDashboard();
-    }
-  } else if(savedMode==='firebase' && savedConfig){
-    try {
-      const cfg = JSON.parse(savedConfig);
-      fbMode = 'firebase';
-      await initFirebase(cfg);
-    } catch(e){
-      usarModoLocal();
-    }
-  } else {
-    // Primera vez — usar config embebida directamente
-    try {
-      localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(DEFAULT_FB_CONFIG));
-      localStorage.setItem(FB_MODE_KEY, 'firebase');
-      fbMode = 'firebase';
-      await initFirebase(DEFAULT_FB_CONFIG);
-    } catch(e){
-      // Si Firebase falla, mostrar pantalla de config manual
-      document.getElementById('screen-fbconfig').style.display = 'block';
-    }
+  try {
+    await initFirebase(DEFAULT_FB_CONFIG);
+  } catch(e){
+    console.error('Firebase error:', e);
+    // Si Firebase falla completamente mostrar error en login
+    showLogin();
+    showLoginError('Error conectando. Verifica tu conexión a internet.');
   }
 }
 waitForFirebase(_startApp);
@@ -5209,32 +5413,7 @@ function validateAndImportBackup(rawText){
 }
 
 // Mejorar importBackup en el sheet de exportación también
-function importBackup(input){
-  const file = input.files[0];
-  if(!file) return;
-  const status = document.getElementById('import-status');
-  status.textContent = 'Leyendo archivo...';
-  status.style.color = 'var(--muted)';
 
-  const reader = new FileReader();
-  reader.onload = e => {
-    const result = validateAndImportBackup(e.target.result);
-    if(result.ok){
-      status.textContent = `✓ Restaurado: ${result.stats}`;
-      status.style.color = 'var(--green)';
-      input.value='';
-      renderDashboard();
-      toast('Backup restaurado exitosamente ✓');
-      setTimeout(()=>{ closeSheet('sheet-export'); status.textContent=''; }, 2000);
-    } else {
-      status.textContent = '✗ ' + result.error;
-      status.style.color = 'var(--red)';
-      input.value='';
-      toast('Error al importar: ' + result.error, 'err');
-    }
-  };
-  reader.readAsText(file);
-}
 
 // ── MEJORA 3C: Nómina con historial y deshacer ────────────
 // Guardar historial de pagos para poder ver y deshacer
