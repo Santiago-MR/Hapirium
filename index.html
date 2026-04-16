@@ -4665,6 +4665,17 @@ async function doLogin(){
 
   if(!email||!pass){ showLoginError('Completa todos los campos'); return; }
 
+  // Verificar que Firebase está inicializado
+  if(!fbAuth){
+    showLoginError('Conectando con Firebase... Por favor espera 5 segundos y vuelve a intentar.');
+    // Intentar reinicializar
+    const cfg = JSON.parse(localStorage.getItem('hapirium_fb_config')||'null');
+    if(cfg) initFirebase(cfg);
+    btn.textContent = loginMode==='login'?'Entrar':'Crear cuenta';
+    btn.disabled = false;
+    return;
+  }
+
   btn.textContent = '⏳ Procesando...';
   btn.disabled = true;
   errDiv.style.display = 'none';
@@ -4828,7 +4839,20 @@ if(!localStorage.getItem('hapirium_deviceId')){
   localStorage.setItem('hapirium_deviceId', 'dev_'+uid());
 }
 
-(async function startApp(){
+
+// Iniciar app cuando Firebase esté disponible
+function waitForFirebase(cb, attempts=0){
+  if(typeof firebase !== 'undefined' && firebase.app){
+    cb();
+  } else if(attempts < 20){
+    setTimeout(()=>waitForFirebase(cb, attempts+1), 200);
+  } else {
+    console.error('Firebase no cargó — modo local');
+    usarModoLocal && usarModoLocal();
+  }
+}
+
+async function _startApp(){
   // ── Configuración Firebase embebida ──
   // Si no hay config guardada, usar la de PANADERIA BENDITO PAN automáticamente
   const DEFAULT_FB_CONFIG = {
@@ -4871,7 +4895,8 @@ if(!localStorage.getItem('hapirium_deviceId')){
       document.getElementById('screen-fbconfig').style.display = 'block';
     }
   }
-})();
+}
+waitForFirebase(_startApp);
 
 // ── MEJORA 3A: Onboarding ─────────────────────────────────
 function startWithDemo(){
