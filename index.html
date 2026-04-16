@@ -5879,55 +5879,67 @@ async function crearUsuarioApp(){
   btn.textContent='⏳ Creando...'; btn.disabled=true;
 
   try {
-    // Crear usuario en Firebase Auth
-    // Guardamos las credenciales del dueño para restaurarlas
-    const emailDueno = fbAuth.currentUser.email;
-    const cred = await fbAuth.createUserWithEmailAndPassword(email, pass);
-    const uid = cred.user.uid;
+    // ── SOLUCIÓN CORRECTA ──────────────────────────────────
+    // Usar una segunda instancia de Firebase para crear el usuario
+    // sin afectar la sesión activa del dueño.
+    // La sesión del dueño nunca se interrumpe.
+    const config = JSON.parse(localStorage.getItem('hapirium_fb_config') || 'null')
+      || fbApp.options;
 
-    // Guardar perfil en Firestore
+    // Crear app secundaria temporal (nombre único por timestamp)
+    const appName = 'temp_create_' + Date.now();
+    const tempApp  = firebase.initializeApp(config, appName);
+    const tempAuth = firebase.auth(tempApp);
+
+    // Crear el usuario en la app temporal — NO afecta al dueño
+    const cred = await tempAuth.createUserWithEmailAndPassword(email, pass);
+    const uid  = cred.user.uid;
+
+    // Cerrar la app temporal inmediatamente
+    await tempAuth.signOut();
+    await tempApp.delete();
+
+    // Guardar perfil en Firestore (usando la conexión del dueño)
     await fbDb.collection('users').doc(uid).set({
       nombre, email, rol,
+      activo:    true,
       createdAt: new Date().toISOString(),
-      createdBy: emailDueno,
-      activo: true
+      createdBy: fbAuth.currentUser?.email || 'dueno',
     });
 
-    // Volver a iniciar sesión como dueño
-    await fbAuth.signOut();
-    // El onAuthStateChanged va a detectar el logout y mostrar login
-    // Necesitamos re-autenticar al dueño automáticamente
+    registrarAuditoria(`Usuario creado — ${nombre} (${rol})`, 'usuario', { nombre, rol });
 
+    // ── Mostrar credenciales al dueño ──────────────────────
     okDiv.innerHTML = `
-      <strong>✅ Usuario creado exitosamente</strong><br>
-      <span style="margin-top:4px;display:block">Nombre: ${nombre}</span>
-      <span>Correo: ${email}</span><br>
-      <span>Contraseña: <strong>${pass}</strong></span><br>
-      <span style="margin-top:4px;display:block;color:var(--amber)">⚠️ Comparte estas credenciales con el empleado de forma segura.</span>
-    `;
+      <div style="margin-bottom:8px"><strong>✅ Usuario creado exitosamente</strong></div>
+      <div style="font-size:12px;line-height:1.8">
+        <div>👤 <strong>${nombre}</strong></div>
+        <div>📧 ${email}</div>
+        <div>🔑 ${pass}</div>
+        <div>🏷️ ${ROLES[rol]?.icon||''} ${ROLES[rol]?.label||rol}</div>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--amber)">
+        ⚠️ Comparte estas credenciales con el empleado de forma segura.<br>
+        La sesión del dueño NO se interrumpió.
+      </div>`;
     okDiv.style.display='block';
-
-    // Guardar localmente la lista de usuarios creados
-    const usuariosLocal = JSON.parse(localStorage.getItem('hapirium_usuarios_creados')||'[]');
-    usuariosLocal.push({uid, nombre, email, rol, createdAt: new Date().toISOString(), activo:true});
-    localStorage.setItem('hapirium_usuarios_creados', JSON.stringify(usuariosLocal));
 
     renderUsuariosApp();
     btn.textContent='Crear otro';
     btn.disabled=false;
 
-    // Re-login automático del dueño
-    setTimeout(()=>{
-      showLogin();
-      document.getElementById('login-email').value = emailDueno;
-      toast('Sesión cerrada — vuelve a ingresar con tu contraseña');
-    }, 4000);
+    // Limpiar campos para crear otro
+    ['nu-nombre','nu-email','nu-pass'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.value='';
+    });
 
   } catch(err){
     const msgs = {
       'auth/email-already-in-use': 'Ese correo ya tiene una cuenta registrada',
       'auth/invalid-email':        'Correo inválido',
       'auth/weak-password':        'Contraseña muy débil — mínimo 6 caracteres',
+      'auth/operation-not-allowed':'Creación de usuarios no habilitada en Firebase',
     };
     errDiv.textContent = msgs[err.code] || err.message;
     errDiv.style.display='block';
