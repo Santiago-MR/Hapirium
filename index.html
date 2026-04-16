@@ -3983,7 +3983,8 @@ function togglePagoNomina(pagoKey){
 // ═══════════════════════════════════════════════
 function renderAnalisis(){
   if(!puedeNavegar('analisis')) return;
-  // Destroy all charts first so they re-measure correctly
+  // Solo destruir charts cuando el usuario navega activamente a esta página
+  // NO cuando viene de una sincronización automática
   Object.keys(charts).forEach(id=>{
     try{ charts[id].destroy(); delete charts[id]; }catch(e){}
   });
@@ -5018,7 +5019,15 @@ async function syncFromFirebase(){
     const snap = await fbDb.collection('negocios').doc(projectId).collection('datos').doc('db').get();
     if(snap.exists){
       const data = snap.data();
-      db = { ...loadDB(), ...data };
+      // Preservar cajas y auditoria locales si Firebase no las tiene aún
+      const cajas     = data.cajas     ?? db.cajas     ?? [];
+      const auditoria = data.auditoria ?? db.auditoria ?? [];
+      db = {
+        ...loadDB(),    // estructura base limpia
+        ...data,        // datos de Firebase
+        cajas,          // preservar cajas
+        auditoria,      // preservar auditoría
+      };
       saveDB();
       renderCurrentPage();
       showSyncBadge('✅ Sincronizado', 'var(--green)');
@@ -5030,14 +5039,39 @@ async function syncFromFirebase(){
 function startRealtimeSync(uid){
   if(fbUnsub) fbUnsub();
   const projectId = fbAuth.app.options.projectId;
+
   fbUnsub = fbDb.collection('negocios').doc(projectId).collection('datos').doc('db').onSnapshot(snap=>{
-    if(snap.exists && snap.metadata.hasPendingWrites === false){
-      const data = snap.data();
-      db = { ...db, ...data };
-      saveDB();
-      renderCurrentPage();
-      showSyncBadge('🔄 Actualizado', 'var(--blue)');
-    }
+    if(!snap.exists) return;
+
+    // ── Ignorar cambios que vienen de ESTE mismo dispositivo ──
+    // hasPendingWrites = true significa que este dispositivo fue el origen
+    // fromCache = true significa que es el caché local, no del servidor
+    if(snap.metadata.hasPendingWrites) return;
+    if(snap.metadata.fromCache) return;
+
+    // Solo procesar cambios que vienen de OTROS dispositivos
+    const data = snap.data();
+    if(!data) return;
+
+    // Actualizar datos locales preservando cajas y auditoria locales
+    const cajas     = data.cajas     ?? db.cajas     ?? [];
+    const auditoria = data.auditoria ?? db.auditoria ?? [];
+    db = { ...db, ...data, cajas, auditoria };
+    try{ localStorage.setItem('hapirium_v1', JSON.stringify(db)); }catch(e){}
+
+    // Re-renderizar con debounce para evitar saltos múltiples
+    clearTimeout(window._syncRenderTimer);
+    window._syncRenderTimer = setTimeout(()=>{
+      // No re-renderizar análisis (charts) — solo páginas de datos
+      if(currentPage !== 'analisis'){
+        renderCurrentPage();
+      } else {
+        // En análisis solo actualizar datos sin destruir gráficas
+        // Las gráficas se actualizan la próxima vez que el usuario cambie de tab
+      }
+      showSyncBadge('🔄 Datos actualizados', 'var(--blue)');
+    }, 1500); // esperar 1.5s antes de re-renderizar
+
   }, err=>{ console.warn('Realtime sync error:', err); });
 }
 
@@ -5077,7 +5111,7 @@ function syncFirebase(){
       // updateDoc solo modifica los campos enviados, no borra los demás
       // Esto evita que dos usuarios se sobreescriban al guardar simultáneamente
       const payload = {};
-      ['productos','repartidores','precios','ventas','devoluciones','gastos','empleados'].forEach(col=>{
+      ['productos','repartidores','precios','ventas','devoluciones','gastos','empleados','cajas','auditoria'].forEach(col=>{
         // Solo subir si hay datos en esa colección
         if(db[col] && db[col].length >= 0){
           payload[col] = db[col];
