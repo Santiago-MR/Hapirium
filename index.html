@@ -1131,27 +1131,33 @@ body {
     <div class="sheet-handle"></div>
     <div class="sheet-header"><span class="sheet-title">¿Qué quieres registrar?</span><div class="sheet-close" onclick="closeSheet('sheet-fab')">✕</div></div>
     <div class="sheet-body" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <div class="list-item" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-venta')">
+      <!-- Venta: todos los roles activos pueden registrar -->
+      <div class="list-item fab-item" data-roles="dueno,admin,repartidor" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-venta')">
         <div style="font-size:28px">🧾</div>
         <div style="font-size:13px;font-weight:600;color:var(--cream)">Nueva Venta</div>
       </div>
-      <div class="list-item" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-devolucion')">
+      <!-- Devolución: todos los roles activos -->
+      <div class="list-item fab-item" data-roles="dueno,admin,repartidor" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-devolucion')">
         <div style="font-size:28px">↩️</div>
         <div style="font-size:13px;font-weight:600;color:var(--cream)">Devolución</div>
       </div>
-      <div class="list-item" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-gasto')">
+      <!-- Gasto: dueño y admin -->
+      <div class="list-item fab-item" data-roles="dueno,admin" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-gasto')">
         <div style="font-size:28px">💸</div>
         <div style="font-size:13px;font-weight:600;color:var(--cream)">Gasto</div>
       </div>
-      <div class="list-item" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');resetProdSheet();openSheet('sheet-producto')">
+      <!-- Producto: solo dueño y admin -->
+      <div class="list-item fab-item" data-roles="dueno,admin" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');resetProdSheet();openSheet('sheet-producto')">
         <div style="font-size:28px">📦</div>
         <div style="font-size:13px;font-weight:600;color:var(--cream)">Producto</div>
       </div>
-      <div class="list-item" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-repartidor')">
+      <!-- Repartidor: solo dueño -->
+      <div class="list-item fab-item" data-roles="dueno" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-repartidor')">
         <div style="font-size:28px">🚚</div>
         <div style="font-size:13px;font-weight:600;color:var(--cream)">Repartidor</div>
       </div>
-      <div class="list-item" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-empleado')">
+      <!-- Empleado: solo dueño -->
+      <div class="list-item fab-item" data-roles="dueno" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-empleado')">
         <div style="font-size:28px">👤</div>
         <div style="font-size:13px;font-weight:600;color:var(--cream)">Empleado</div>
       </div>
@@ -2042,15 +2048,20 @@ let currentPage='home';
 const charts={};
 
 function navigate(page, el){
+  // Verificar que el rol actual puede acceder a esta página
+  if(!puedeNavegar(page)){
+    console.warn(`Rol ${currentRole} no puede acceder a ${page}`);
+    return;
+  }
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   document.querySelectorAll('.nav-tab').forEach(n=>n.classList.remove('active'));
   if(el) el.classList.add('active');
   currentPage=page;
-  if(page==='home') renderDashboard();
-  if(page==='inv') renderInv();
-  if(page==='mov') { renderVentas(); }
-  if(page==='equipo') renderReps();
+  if(page==='home')     renderDashboard();
+  if(page==='inv')      renderInv();
+  if(page==='mov')      renderVentas();
+  if(page==='equipo')   renderReps();
   if(page==='analisis') renderAnalisis();
 }
 
@@ -2059,7 +2070,14 @@ function navigate(page, el){
 // ═══════════════════════════════════════════════
 function openSheet(id){ document.getElementById(id).classList.add('open'); }
 function closeSheet(id){ document.getElementById(id).classList.remove('open'); }
-function openFabMenu(){ openSheet('sheet-fab'); }
+function openFabMenu(){
+  // Filtrar opciones del FAB según el rol actual
+  document.querySelectorAll('.fab-item').forEach(item => {
+    const roles = (item.dataset.roles || '').split(',');
+    item.style.display = roles.includes(currentRole) ? 'flex' : 'none';
+  });
+  openSheet('sheet-fab');
+}
 function openInstallGuide(){ openSheet('sheet-install'); }
 
 document.querySelectorAll('.sheet-overlay').forEach(s=>{
@@ -2104,23 +2122,46 @@ function toggleDashChart(){
 }
 
 function renderDashboard(){
-  // ── Fecha y datos del mes ──────────────────────────────────
+  // ── Solo roles con acceso a home ──────────────────────────
+  if(!puedeNavegar('home')) return;
+
   const d   = new Date();
   const mes = curMes();
   document.getElementById('dash-date').textContent =
     d.toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
-  // ── Un solo cálculo para toda la pantalla ─────────────────
-  // calcularMes() es la fuente única de verdad financiera
   const f = calcularMes(mes);
 
-  // ── Renderizar cada sección de forma independiente ────────
-  _renderCuadro1(f);
-  _renderCuadro2(f);
-  _renderCuadro3(f);
+  // ── Cuadros financieros: solo dueño y contador ────────────
+  // Admin y repartidor NO ven los 3 cuadros de P&L
+  const verFinanzas = seeFinanzas();
+
+  const c1El = document.getElementById('dash-pl-c1');
+  const c2El = document.getElementById('dash-pl-c2');
+  const c3El = document.getElementById('dash-pl-c3');
+
+  if(verFinanzas){
+    if(c1El) c1El.style.display = 'block';
+    if(c2El) c2El.style.display = 'block';
+    if(c3El) c3El.style.display = 'block';
+    _renderCuadro1(f);
+    _renderCuadro2(f);
+    _renderCuadro3(f);
+  } else {
+    // Ocultar cuadros financieros para roles sin permiso
+    if(c1El){ c1El.style.display='block'; c1El.innerHTML=`
+      <div style="padding:20px 16px;text-align:center;background:var(--s2);border-radius:var(--r)">
+        <div style="font-size:28px;margin-bottom:8px;opacity:0.4">🔒</div>
+        <div style="font-size:13px;color:var(--muted)">
+          Los cuadros financieros son visibles<br>solo para el Dueño y Contador.
+        </div>
+      </div>`; }
+    if(c2El) c2El.style.display='none';
+    if(c3El) c3El.style.display='none';
+  }
+
   _renderDashStats(f, mes);
   _renderDashAlertas(f);
-
   renderDashChart();
   renderDashReps();
 }
@@ -3804,6 +3845,7 @@ function togglePagoNomina(pagoKey){
 // ANÁLISIS
 // ═══════════════════════════════════════════════
 function renderAnalisis(){
+  if(!puedeNavegar('analisis')) return;
   // Destroy all charts first so they re-measure correctly
   Object.keys(charts).forEach(id=>{
     try{ charts[id].destroy(); delete charts[id]; }catch(e){}
@@ -4150,10 +4192,9 @@ function seed(){
 }
 
 // ═══════════════════════════════════════════════
-// INIT
+// INIT — El arranque real está en _startApp()
+// Las funciones de render se llaman desde showApp()
 // ═══════════════════════════════════════════════
-seed();
-renderDashboard();
 
 
 // ═══════════════════════════════════════════════
@@ -4742,9 +4783,10 @@ const ROLES = {
   contador:    { label:'Contador',        icon:'👀', canEdit:false, canDelete:false, seeFinanzas:true,  seeNomina:true  },
 };
 
-function canEdit()    { return ROLES[currentRole]?.canEdit    ?? false; }
-function canDelete()  { return ROLES[currentRole]?.canDelete  ?? false; }
-function seeFinanzas(){ return ROLES[currentRole]?.seeFinanzas ?? false; }
+function _rol(){ return (typeof currentRole !== 'undefined') ? currentRole : 'dueno'; }
+function canEdit()    { return ROLES[_rol()]?.canEdit     ?? false; }
+function canDelete()  { return ROLES[_rol()]?.canDelete   ?? false; }
+function seeFinanzas(){ return ROLES[_rol()]?.seeFinanzas ?? false; }
 
 // ── Inicialización Firebase ───────────────────────────────
 async function initFirebase(config){
@@ -4977,42 +5019,78 @@ function applyRoleUI(){
   const role = ROLES[currentRole];
   if(!role) return;
 
-  // Mostrar pestaña Usuarios solo al dueño
-  const tabUsuarios = document.getElementById('tab-usuarios-app');
-  if(tabUsuarios) tabUsuarios.style.display = currentRole==='dueno' ? 'block' : 'none';
-  const header = document.getElementById('app-header');
+  // ── Badge de rol en el header ──────────────────────────────
   let rolBadge = document.getElementById('rol-badge');
   if(!rolBadge){
     rolBadge = document.createElement('div');
-    rolBadge.id='rol-badge';
-    rolBadge.style.cssText='font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-d);cursor:pointer;';
+    rolBadge.id = 'rol-badge';
+    rolBadge.style.cssText = 'font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-d);cursor:pointer;white-space:nowrap;flex-shrink:0';
     rolBadge.onclick = ()=>{ if(confirm('¿Cerrar sesión?')) doLogout(); };
-    header.querySelector('.header-right').prepend(rolBadge);
+    const headerRight = document.getElementById('app-header')?.querySelector('.header-right');
+    if(headerRight) headerRight.prepend(rolBadge);
   }
   rolBadge.textContent = `${role.icon} ${role.label}`;
 
-  // Ocultar Dashboard financiero para repartidores y admins
-  if(!seeFinanzas()){
-    document.querySelectorAll('[data-fin]').forEach(el=>el.style.display='none');
-    // Ocultar pestaña Análisis del nav
-    const analisisTab = document.querySelector('[onclick*="analisis"]');
-    if(analisisTab) analisisTab.style.display='none';
+  // ── Pestaña Usuarios: solo dueño ──────────────────────────
+  const tabUsuarios = document.getElementById('tab-usuarios-app');
+  if(tabUsuarios) tabUsuarios.style.display = currentRole === 'dueno' ? 'block' : 'none';
+
+  // ── Navegación por rol ────────────────────────────────────
+  // Cada rol solo accede a las páginas que le corresponden
+  const ACCESO_NAV = {
+    dueno:      ['home','inv','mov','equipo','analisis'],
+    admin:      ['home','inv','mov','equipo'],
+    repartidor: ['mov'],
+    contador:   ['home','analisis'],
+  };
+  const permitidas = ACCESO_NAV[currentRole] || ['home'];
+
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    const match = t.getAttribute('onclick')?.match(/'(\w+)'/);
+    const page  = match ? match[1] : null;
+    if(page){
+      if(permitidas.includes(page)){
+        t.style.display  = 'flex';
+        t.style.opacity  = '1';
+        t.style.pointerEvents = 'auto';
+      } else {
+        t.style.display  = 'none'; // Ocultar completamente — no solo reducir opacidad
+      }
+    }
+  });
+
+  // Si la página actual no está permitida, redirigir
+  if(!permitidas.includes(currentPage)){
+    navigate(permitidas[0], document.querySelector('.nav-tab'));
   }
 
-  // Repartidor: solo ve Movimientos (sus ventas)
-  if(currentRole==='repartidor'){
-    document.querySelectorAll('.nav-tab').forEach(t=>{
-      const page = t.getAttribute('onclick')?.match(/'(\w+)'/)?.[1];
-      if(!['mov','home'].includes(page)) t.style.opacity='0.3';
-    });
-    // Ocultar FAB opciones que no le corresponden
-    document.querySelectorAll('[data-role-hide]').forEach(el=>el.style.display='none');
+  // ── FAB y botones de acción ───────────────────────────────
+  const fab = document.getElementById('fab');
+  if(fab){
+    if(currentRole === 'contador'){
+      fab.style.display = 'none'; // Contador: solo lectura, sin acciones
+    } else if(currentRole === 'repartidor'){
+      fab.style.display = 'flex'; // Repartidor: puede registrar ventas/devoluciones
+    } else {
+      fab.style.display = 'flex';
+    }
   }
 
-  // Contador: solo lectura — ocultar todos los botones de acción
-  if(currentRole==='contador'){
-    document.querySelectorAll('.btn-amber, .btn-danger, #fab').forEach(el=>el.style.display='none');
-  }
+  // ── Re-renderizar la página actual con restricciones ──────
+  // CRÍTICO: renderizar DESPUÉS de aplicar el rol, no antes
+  renderCurrentPage();
+}
+
+// ── Verificar acceso antes de navegar ─────────────────────────
+function puedeNavegar(page){
+  const ACCESO_NAV = {
+    dueno:      ['home','inv','mov','equipo','analisis'],
+    admin:      ['home','inv','mov','equipo'],
+    repartidor: ['mov'],
+    contador:   ['home','analisis'],
+  };
+  const rol = (typeof currentRole !== 'undefined') ? currentRole : 'dueno';
+  return (ACCESO_NAV[rol] || ['home']).includes(page);
 }
 
 // ── Gestión de usuarios de la app (solo dueño) ────────────
@@ -5172,20 +5250,48 @@ function showLogin(){
 }
 
 function showApp(){
-  document.getElementById('screen-login').style.display   = 'none';
-  document.getElementById('screen-fbconfig').style.display= 'none';
-  document.getElementById('app-header').style.display     = 'flex';
-  document.getElementById('scroll-area').style.display    = 'block';
-  document.getElementById('bottom-nav').style.display     = 'flex';
-  document.getElementById('fab').style.display            = 'flex';
+  document.getElementById('screen-login').style.display    = 'none';
+  document.getElementById('screen-fbconfig').style.display = 'none';
+  document.getElementById('screen-onboarding').style.display = 'none';
+  document.getElementById('app-header').style.display      = 'flex';
+  document.getElementById('scroll-area').style.display     = 'block';
+  document.getElementById('bottom-nav').style.display      = 'flex';
+  document.getElementById('fab').style.display             = 'flex';
+
+  // CRÍTICO: aplicar roles ANTES de renderizar cualquier contenido
+  // applyRoleUI() llama renderCurrentPage() internamente
   applyRoleUI();
-  renderDashboard();
 }
 
 function renderCurrentPage(){
-  const pages = { home:renderDashboard, inv:renderInv, mov:()=>{}, equipo:renderReps, analisis:renderAnalisis };
-  const fn = pages[currentPage];
-  if(fn) try{ fn(); }catch(e){}
+  // Si la página actual no está permitida, ir a la primera permitida
+  const ACCESO_NAV = {
+    dueno:      ['home','inv','mov','equipo','analisis'],
+    admin:      ['home','inv','mov','equipo'],
+    repartidor: ['mov'],
+    contador:   ['home','analisis'],
+  };
+  const permitidas = ACCESO_NAV[currentRole] || ['home'];
+
+  if(!permitidas.includes(currentPage)){
+    currentPage = permitidas[0];
+  }
+
+  // Activar la página correcta en el DOM
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const pageEl = document.getElementById('page-'+currentPage);
+  if(pageEl) pageEl.classList.add('active');
+
+  // Renderizar según la página activa
+  const renders = {
+    home:     renderDashboard,
+    inv:      renderInv,
+    mov:      renderVentas,
+    equipo:   renderReps,
+    analisis: renderAnalisis,
+  };
+  const fn = renders[currentPage];
+  if(fn) try{ fn(); }catch(e){ console.warn('render error:', e); }
 }
 
 // ── Configuración Firebase ────────────────────────────────
