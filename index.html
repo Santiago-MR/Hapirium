@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Hapirium">
 <meta name="theme-color" content="#000000">
-<title>Hapirium — HPRM</title>
+<title>Hapirium — Sistema de Panadería</title>
 <link rel="manifest" href="#" id="manifest-link">
 <!-- Firebase SDK compat — funciona en cualquier navegador sin bundler -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -900,7 +900,8 @@ body {
     <div class="tab-row">
       <div class="tab-pill active" onclick="switchMovTab(this,'ventas')">Ventas</div>
       <div class="tab-pill" onclick="switchMovTab(this,'devoluciones')">Devoluciones</div>
-      <div class="tab-pill" onclick="switchMovTab(this,'gastos')">Gastos</div>
+      <!-- Gastos: solo dueño y admin — repartidor NO ve lo que paga la empresa -->
+      <div class="tab-pill" id="tab-mov-gastos" onclick="switchMovTab(this,'gastos')">Gastos</div>
     </div>
 
     <!-- Ventas -->
@@ -958,6 +959,23 @@ body {
       </div>
       <div id="usuarios-list" class="card mb12"></div>
       <button class="btn btn-amber btn-full" onclick="openSheet('sheet-nuevo-usuario')">＋ Crear usuario</button>
+    </div>
+  </div>
+
+  <!-- ═══════════ PAGE: CAJA DIARIA ═══════════ -->
+  <div id="page-caja" class="page">
+    <div class="section-title">Caja Diaria</div>
+
+    <!-- Estado de caja actual -->
+    <div id="caja-estado" class="card mb12"></div>
+
+    <!-- Historial de cajas -->
+    <div class="card mb12">
+      <div class="card-hd">
+        <h3>📋 Historial de cajas</h3>
+        <span id="caja-hist-count" class="badge badge-amber"></span>
+      </div>
+      <div id="caja-historial"></div>
     </div>
   </div>
 
@@ -1062,14 +1080,30 @@ body {
     </div>
 
     <div id="analisis-historial" style="display:none">
+      <!-- Filtros de auditoría -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        <select id="audit-filtro-tipo" onchange="renderAuditoria()"
+          style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:9px 10px;color:var(--text);font-family:'Outfit',sans-serif;font-size:12px;outline:none">
+          <option value="">Todos los eventos</option>
+          <option value="venta">🧾 Ventas</option>
+          <option value="devolucion">↩️ Devoluciones</option>
+          <option value="gasto">💸 Gastos</option>
+          <option value="caja">💰 Caja</option>
+          <option value="inventario">📦 Inventario</option>
+          <option value="nomina">👷 Nómina</option>
+          <option value="usuario">👥 Usuarios</option>
+          <option value="sistema">⚙️ Sistema</option>
+        </select>
+        <input type="date" id="audit-filtro-fecha" onchange="renderAuditoria()"
+          style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:9px 10px;color:var(--cream);font-family:'Outfit',sans-serif;font-size:12px;outline:none;min-width:120px">
+      </div>
+      <!-- Lista de eventos -->
       <div class="card mb12">
         <div class="card-hd">
-          <h3>📋 Historial de actividad</h3>
-          <div onclick="clearHistorial()" style="font-size:11px;color:var(--muted);cursor:pointer;padding:4px 8px;background:var(--s3);border-radius:6px;border:1px solid var(--border)">Limpiar</div>
+          <h3>📋 Historial de auditoría</h3>
+          <span id="audit-count" class="badge badge-amber"></span>
         </div>
-        <div id="historial-list">
-          <div class="empty" style="padding:30px"><p>Sin actividad registrada aún.</p></div>
-        </div>
+        <div id="audit-list"></div>
       </div>
     </div>
   </div>
@@ -1104,6 +1138,10 @@ body {
   <div class="nav-tab" onclick="navigate('mov',this)">
     <div class="nav-icon">🧾</div>
     <div class="nav-label">Movimientos</div>
+  </div>
+  <div class="nav-tab" id="nav-caja" onclick="navigate('caja',this)">
+    <div class="nav-icon">💰</div>
+    <div class="nav-label">Caja</div>
   </div>
   <div class="nav-tab" onclick="navigate('equipo',this)">
     <div class="nav-icon">👥</div>
@@ -1141,8 +1179,8 @@ body {
         <div style="font-size:28px">↩️</div>
         <div style="font-size:13px;font-weight:600;color:var(--cream)">Devolución</div>
       </div>
-      <!-- Gasto: dueño y admin -->
-      <div class="list-item fab-item" data-roles="dueno,admin" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-gasto')">
+      <!-- Gasto: dueño, admin y cajero -->
+      <div class="list-item fab-item" data-roles="dueno,admin,cajero" style="flex-direction:column;border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;border-bottom:none;gap:6px;" onclick="closeSheet('sheet-fab');openSheet('sheet-gasto')">
         <div style="font-size:28px">💸</div>
         <div style="font-size:13px;font-weight:600;color:var(--cream)">Gasto</div>
       </div>
@@ -1202,6 +1240,90 @@ body {
 
 <!-- Sheet Repartidor -->
 <!-- ══ SHEET: Nuevo usuario de la app ══ -->
+<!-- ══ SHEET: Abrir Caja ══ -->
+<div id="sheet-abrir-caja" class="sheet-overlay">
+  <div class="sheet">
+    <div class="sheet-hd">
+      <div class="sheet-title">💰 Abrir Caja</div>
+      <div class="sheet-close" onclick="closeSheet('sheet-abrir-caja')">✕</div>
+    </div>
+    <div class="sheet-body">
+      <div style="background:var(--green-bg);border:1px solid var(--green);border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--green);line-height:1.6;">
+        Cuenta el dinero físico que hay en la caja ahora mismo y regístralo aquí.
+      </div>
+      <div class="form-group">
+        <label>Fecha</label>
+        <input type="date" id="caja-fecha-apertura">
+      </div>
+      <div class="form-group">
+        <label>Saldo inicial (dinero en caja al abrir)</label>
+        <input type="number" id="caja-saldo-inicial" placeholder="0" min="0">
+      </div>
+      <div class="form-group">
+        <label>Turno</label>
+        <select id="caja-turno">
+          <option value="mañana">☀️ Mañana</option>
+          <option value="tarde">🌆 Tarde</option>
+          <option value="completo">🌅 Día completo</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Notas (opcional)</label>
+        <input type="text" id="caja-notas-apertura" placeholder="Observaciones al abrir...">
+      </div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeSheet('sheet-abrir-caja')">Cancelar</button>
+      <button class="btn btn-amber" style="flex:2" onclick="abrirCaja()">✅ Abrir Caja</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SHEET: Cerrar Caja ══ -->
+<div id="sheet-cerrar-caja" class="sheet-overlay">
+  <div class="sheet">
+    <div class="sheet-hd">
+      <div class="sheet-title">🔒 Cerrar Caja</div>
+      <div class="sheet-close" onclick="closeSheet('sheet-cerrar-caja')">✕</div>
+    </div>
+    <div class="sheet-body">
+      <!-- Resumen del día (calculado) -->
+      <div id="caja-resumen-cierre" class="card mb12" style="background:var(--s2)"></div>
+
+      <div class="form-group">
+        <label>💵 Saldo físico real (cuenta el dinero en caja ahora)</label>
+        <input type="number" id="caja-saldo-cierre" placeholder="0" min="0"
+          oninput="calcularDiferenciaCierre()">
+      </div>
+
+      <!-- Diferencia en tiempo real -->
+      <div id="caja-diferencia-display" style="display:none;padding:12px;border-radius:10px;margin-bottom:12px;text-align:center"></div>
+
+      <div id="caja-motivo-wrap" class="form-group" style="display:none;">
+        <label>⚠️ Motivo del descuadre (obligatorio)</label>
+        <select id="caja-motivo-descuadre">
+          <option value="">Seleccionar motivo...</option>
+          <option value="venta_no_registrada">Venta no registrada en el sistema</option>
+          <option value="gasto_efectivo">Gasto pagado en efectivo no registrado</option>
+          <option value="error_conteo">Error de conteo</option>
+          <option value="prestamo">Préstamo / adelanto</option>
+          <option value="otro">Otro</option>
+        </select>
+        <input type="text" id="caja-motivo-otro" placeholder="Describe el motivo..." style="margin-top:8px;display:none">
+      </div>
+
+      <div class="form-group">
+        <label>Notas de cierre (opcional)</label>
+        <input type="text" id="caja-notas-cierre" placeholder="Observaciones al cerrar...">
+      </div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeSheet('sheet-cerrar-caja')">Cancelar</button>
+      <button class="btn btn-amber" style="flex:2" onclick="cerrarCaja()">🔒 Cerrar Caja</button>
+    </div>
+  </div>
+</div>
+
 <div id="sheet-nuevo-usuario" class="sheet-overlay">
   <div class="sheet">
     <div class="sheet-hd">
@@ -1224,6 +1346,7 @@ body {
         <label>Rol *</label>
         <select id="nu-rol">
           <option value="admin">📦 Administrador — ventas, inventario, gastos</option>
+          <option value="cajero">🏧 Cajero — caja, ventas, devoluciones y gastos</option>
           <option value="repartidor">🚚 Repartidor — solo sus ventas y devoluciones</option>
           <option value="contador">👀 Contador — solo lectura, reportes</option>
         </select>
@@ -1805,7 +1928,7 @@ const DB_KEY = 'hapirium_v1';
 
 function loadDB(){
   try{ const r=localStorage.getItem(DB_KEY); if(r) return JSON.parse(r); }catch(e){}
-  return { productos:[], repartidores:[], precios:[], ventas:[], devoluciones:[], gastos:[], empleados:[] };
+  return { productos:[], repartidores:[], precios:[], ventas:[], devoluciones:[], gastos:[], empleados:[], cajas:[], auditoria:[] };
 }
 
 let db=loadDB();
@@ -2061,6 +2184,7 @@ function navigate(page, el){
   if(page==='home')     renderDashboard();
   if(page==='inv')      renderInv();
   if(page==='mov')      renderVentas();
+  if(page==='caja')     renderCaja();
   if(page==='equipo')   renderReps();
   if(page==='analisis') renderAnalisis();
 }
@@ -2629,6 +2753,8 @@ function deleteProductoFromSheet(){
   const id = document.getElementById('p-id').value;
   if(!id) return;
   if(!confirm('¿Eliminar este producto?\nNo se puede deshacer.')) return;
+  const _dp = db.productos.find(p=>p.id===id);
+  if(_dp) registrarAuditoria(`Producto eliminado — ${_dp.nombre}`, 'inventario', { nombre: _dp.nombre });
   db.productos = db.productos.filter(p=>p.id!==id);
   saveDB();
   closeSheet('sheet-producto');
@@ -2647,7 +2773,7 @@ function saveProducto(){
   const data={nombre,cat:document.getElementById('p-cat').value,costo:+document.getElementById('p-costo').value||0,precio:+document.getElementById('p-precio').value||0,stock:+document.getElementById('p-stock').value||0,stockMin:+document.getElementById('p-smin').value||0,unidad:document.getElementById('p-unidad').value};
   if(id){ Object.assign(db.productos.find(p=>p.id===id),data); }
   else { db.productos.push({id:uid(),...data}); }
-  saveDB(); closeSheet('sheet-producto'); renderInv(); toast('Producto guardado ✓');
+  saveDB(); closeSheet('sheet-producto'); renderInv(); registrarAuditoria(`Producto guardado — ${prod.nombre}`,'inventario',{nombre:prod.nombre,monto:prod.precio}); toast('Producto guardado ✓');
   document.getElementById('p-id').value='';
   document.getElementById('sh-prod-title').textContent='Nuevo Producto';
   ['p-nombre','p-cat','p-costo','p-precio','p-stock','p-smin'].forEach(f=>document.getElementById(f).value='');
@@ -3276,6 +3402,7 @@ function deleteVenta(id){
   if(!v||!confirm('¿Eliminar esta venta?')) return;
   const p=db.productos.find(x=>x.id===v.productoId);
   if(p) p.stock+=v.cantidad;
+  registrarAuditoria(`Venta eliminada — ${getProd(v.productoId).nombre}`,'venta',{monto:v.total});
   db.ventas=db.ventas.filter(x=>x.id!==id);
   saveDB(); renderVentas(); toast('Venta eliminada');
 }
@@ -3308,6 +3435,7 @@ function saveDevolucion(){
     fecha,
     destruido:false  // false = en zona de destrucción esperando confirmación
   });
+  registrarAuditoria(`Devolución registrada — ${getProd(devolucion.productoId).nombre}`,'devolucion',{monto:devolucion.valorDevolucion||0,cantidad:devolucion.cantidad});
   saveDB();
   closeSheet('sheet-devolucion');
   renderDevoluciones();
@@ -3449,7 +3577,7 @@ function saveGasto(){
   const data={desc,cat:document.getElementById('g-cat').value,monto,fecha,recurrencia:document.getElementById('g-recurrencia').value,proveedor:document.getElementById('g-proveedor').value,estado:document.getElementById('g-estado').value,notas:document.getElementById('g-notas').value};
   if(id){ Object.assign(db.gastos.find(g=>g.id===id),data); }
   else { db.gastos.push({id:uid(),...data}); }
-  saveDB(); closeSheet('sheet-gasto'); renderGastos(); renderDashboard();
+  registrarAuditoria(`Gasto guardado — ${data.desc}`,'gasto',{monto:data.monto}); saveDB(); closeSheet('sheet-gasto'); renderGastos(); renderDashboard();
   toast('Gasto guardado ✓');
   document.getElementById('g-id').value='';
   ['g-desc','g-monto','g-proveedor','g-notas'].forEach(f=>document.getElementById(f).value='');
@@ -3520,13 +3648,22 @@ function renderGastos(){
 // ═══════════════════════════════════════════════
 let movTab='ventas';
 function switchMovTab(el,tab){
+  // Repartidor no puede ver gastos (solo sus ventas/devoluciones)
+  // Cajero, Admin y Dueño sí pueden ver gastos
+  const puedeVerGastos = ['dueno','admin','cajero'].includes(currentRole);
+  if(tab === 'gastos' && !puedeVerGastos){
+    toast('No tienes acceso a los gastos','err');
+    return;
+  }
   document.querySelectorAll('#page-mov .tab-pill').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  ['ventas','devoluciones','gastos'].forEach(t=>{ document.getElementById('mov-'+t).style.display=t===tab?'block':'none'; });
+  ['ventas','devoluciones','gastos'].forEach(t=>{
+    document.getElementById('mov-'+t).style.display = t===tab ? 'block' : 'none';
+  });
   movTab=tab;
-  if(tab==='ventas') renderVentas();
+  if(tab==='ventas')       renderVentas();
   if(tab==='devoluciones') renderDevoluciones();
-  if(tab==='gastos') renderGastos();
+  if(tab==='gastos')       renderGastos();
 }
 
 let equipoTab='repartidores';
@@ -4777,10 +4914,11 @@ let fbMode = localStorage.getItem(FB_MODE_KEY) || 'pending'; // pending | fireba
 
 // ── Roles y permisos ──────────────────────────────────────
 const ROLES = {
-  dueno:       { label:'Dueño',           icon:'👑', canEdit:true,  canDelete:true,  seeFinanzas:true,  seeNomina:true  },
-  admin:       { label:'Administrador',   icon:'📦', canEdit:true,  canDelete:false, seeFinanzas:false, seeNomina:false },
-  repartidor:  { label:'Repartidor',      icon:'🚚', canEdit:false, canDelete:false, seeFinanzas:false, seeNomina:false },
-  contador:    { label:'Contador',        icon:'👀', canEdit:false, canDelete:false, seeFinanzas:true,  seeNomina:true  },
+  dueno:       { label:'Dueño',           icon:'👑', canEdit:true,  canDelete:true,  seeFinanzas:true,  seeNomina:true,  seeCaja:true  },
+  admin:       { label:'Administrador',   icon:'📦', canEdit:true,  canDelete:false, seeFinanzas:false, seeNomina:false, seeCaja:true  },
+  cajero:      { label:'Cajero',          icon:'🏧', canEdit:true,  canDelete:false, seeFinanzas:false, seeNomina:false, seeCaja:true  },
+  repartidor:  { label:'Repartidor',      icon:'🚚', canEdit:false, canDelete:false, seeFinanzas:false, seeNomina:false, seeCaja:false },
+  contador:    { label:'Contador',        icon:'👀', canEdit:false, canDelete:false, seeFinanzas:true,  seeNomina:true,  seeCaja:false },
 };
 
 function _rol(){ return (typeof currentRole !== 'undefined') ? currentRole : 'dueno'; }
@@ -4827,11 +4965,48 @@ async function loadUserProfile(uid){
     const snap = await fbDb.collection('users').doc(uid).get();
     if(snap.exists()){
       const data = snap.data();
-      currentRole = data.rol || 'dueno';
-      // Aplicar restricciones de UI según rol
+      // Verificar que el campo rol existe y es válido
+      const rolValido = ['dueno','admin','cajero','repartidor','contador'].includes(data.rol);
+      if(rolValido){
+        currentRole = data.rol;
+      } else {
+        // Rol inválido o no definido → repartidor por seguridad (mínimo privilegio)
+        console.warn('Rol inválido en Firestore:', data.rol, '→ usando repartidor');
+        currentRole = 'repartidor';
+      }
+      // Guardar en localStorage como caché por si se cae Firebase momentáneamente
+      localStorage.setItem('hapirium_cached_role', currentRole);
+      localStorage.setItem('hapirium_cached_uid', uid);
+      // Registrar ingreso en auditoría
+      registrarAuditoria('Sesión iniciada', 'sistema');
+    } else {
+      // Usuario no tiene documento en Firestore — mínimo privilegio
+      console.warn('Usuario sin perfil en Firestore uid:', uid);
+      // Intentar recuperar de caché
+      const cached = localStorage.getItem('hapirium_cached_role');
+      const cachedUid = localStorage.getItem('hapirium_cached_uid');
+      if(cached && cachedUid === uid){
+        currentRole = cached;
+        console.log('Rol recuperado de caché:', currentRole);
+      } else {
+        currentRole = 'repartidor'; // mínimo privilegio si no hay datos
+      }
+    }
+    applyRoleUI();
+  } catch(e){
+    console.warn('Error cargando perfil Firebase:', e);
+    // Intentar caché local antes de fallar
+    const cached = localStorage.getItem('hapirium_cached_role');
+    const cachedUid = localStorage.getItem('hapirium_cached_uid');
+    if(cached && cachedUid === uid){
+      currentRole = cached;
+      applyRoleUI();
+    } else {
+      // Sin caché → mínimo privilegio
+      currentRole = 'repartidor';
       applyRoleUI();
     }
-  } catch(e){ console.warn('No se pudo cargar perfil:', e); }
+  }
 }
 
 // ── Sync desde Firebase → localStorage ───────────────────
@@ -5000,6 +5175,578 @@ async function doLogin(){
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO: HISTORIAL DE AUDITORÍA
+// Registra automáticamente quién hizo qué y cuándo.
+// Solo lectura para todos — no se puede editar ni borrar.
+// Máximo 500 registros (FIFO — elimina los más viejos).
+// ═══════════════════════════════════════════════════════════════
+
+const AUDIT_MAX = 500;
+
+// Tipos de eventos con íconos y colores
+const AUDIT_TIPOS = {
+  venta:      { icon:'🧾', label:'Venta',      color:'var(--amber)' },
+  devolucion: { icon:'↩️', label:'Devolución', color:'var(--orange)' },
+  gasto:      { icon:'💸', label:'Gasto',       color:'var(--red)'   },
+  caja:       { icon:'💰', label:'Caja',        color:'var(--green)' },
+  inventario: { icon:'📦', label:'Inventario',  color:'var(--blue)'  },
+  nomina:     { icon:'👷', label:'Nómina',      color:'var(--purple)'},
+  usuario:    { icon:'👥', label:'Usuario',     color:'var(--amber)' },
+  sistema:    { icon:'⚙️', label:'Sistema',     color:'var(--muted)' },
+};
+
+// ── Función central de registro ───────────────────────────────
+// Se llama desde cualquier función de negocio.
+// accion: string describiendo qué pasó
+// tipo: clave de AUDIT_TIPOS
+// meta: objeto con datos adicionales opcionales
+function registrarAuditoria(accion, tipo = 'sistema', meta = {}){
+  if(!db.auditoria) db.auditoria = [];
+
+  const evento = {
+    id:        uid(),
+    ts:        new Date().toISOString(),   // timestamp ISO
+    accion,
+    tipo,
+    usuario:   fbAuth?.currentUser?.email || localStorage.getItem('hapirium_cached_uid') || 'local',
+    rol:       currentRole || 'desconocido',
+    meta,      // datos extra (monto, nombre del producto, etc.)
+  };
+
+  // Insertar al principio (más reciente primero)
+  db.auditoria.unshift(evento);
+
+  // FIFO: mantener máximo AUDIT_MAX registros
+  if(db.auditoria.length > AUDIT_MAX){
+    db.auditoria = db.auditoria.slice(0, AUDIT_MAX);
+  }
+
+  // Guardar (sin trigger de sync para no saturar Firebase con cada acción)
+  try{ localStorage.setItem('hapirium_v1', JSON.stringify(db)); }catch(e){}
+}
+
+// ── Renderizar historial de auditoría ─────────────────────────
+function renderAuditoria(){
+  const list     = document.getElementById('audit-list');
+  const countEl  = document.getElementById('audit-count');
+  if(!list) return;
+
+  const filtroTipo  = document.getElementById('audit-filtro-tipo')?.value  || '';
+  const filtroFecha = document.getElementById('audit-filtro-fecha')?.value || '';
+
+  let eventos = db.auditoria || [];
+
+  // Aplicar filtros
+  if(filtroTipo)  eventos = eventos.filter(e => e.tipo === filtroTipo);
+  if(filtroFecha) eventos = eventos.filter(e => e.ts.startsWith(filtroFecha));
+
+  if(countEl) countEl.textContent = eventos.length
+    ? `${eventos.length} evento${eventos.length !== 1 ? 's' : ''}`
+    : '';
+
+  if(!eventos.length){
+    list.innerHTML = `<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">
+      <div style="font-size:32px;margin-bottom:8px;opacity:0.35">📋</div>
+      ${filtroTipo || filtroFecha
+        ? 'Sin eventos con ese filtro.'
+        : 'Sin eventos registrados aún.<br>La auditoría se llena automáticamente.'}
+    </div>`;
+    return;
+  }
+
+  // Agrupar por fecha para mejor legibilidad
+  const porFecha = {};
+  eventos.forEach(e => {
+    const fecha = e.ts.split('T')[0];
+    if(!porFecha[fecha]) porFecha[fecha] = [];
+    porFecha[fecha].push(e);
+  });
+
+  list.innerHTML = Object.entries(porFecha).map(([fecha, evs]) => {
+    const fechaLabel = new Date(fecha + 'T12:00:00').toLocaleDateString('es-CO',
+      { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+    return `
+      <div style="padding:8px 16px;background:var(--s2);font-size:11px;font-weight:700;
+                  color:var(--muted);text-transform:uppercase;letter-spacing:1px;
+                  border-bottom:1px solid var(--border);border-top:1px solid var(--border)">
+        ${fechaLabel}
+      </div>
+      ${evs.map(e => {
+        const tipo   = AUDIT_TIPOS[e.tipo] || AUDIT_TIPOS.sistema;
+        const hora   = new Date(e.ts).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+        const rolIcon= e.rol==='dueno'?'👑':e.rol==='admin'?'📦':e.rol==='repartidor'?'🚚':'👀';
+        const metaStr= _auditMetaStr(e.meta);
+
+        return `
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);
+                      display:flex;align-items:flex-start;gap:12px">
+            <div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;
+                        background:var(--s3);display:flex;align-items:center;
+                        justify-content:center;font-size:16px;margin-top:1px">
+              ${tipo.icon}
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:var(--cream);
+                          margin-bottom:2px">${e.accion}</div>
+              ${metaStr ? `<div style="font-size:11px;color:${tipo.color};margin-bottom:3px">${metaStr}</div>` : ''}
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-size:10px;color:var(--muted)">${rolIcon} ${e.usuario}</span>
+                <span style="font-size:10px;color:var(--muted)">·</span>
+                <span style="font-size:10px;color:var(--muted)">${hora}</span>
+                <span style="font-size:10px;background:var(--s3);border:1px solid var(--border);
+                             border-radius:4px;padding:1px 6px;color:${tipo.color}">${tipo.label}</span>
+              </div>
+            </div>
+          </div>`;
+      }).join('')}`;
+  }).join('');
+}
+
+// ── Formatear metadata en texto legible ───────────────────────
+function _auditMetaStr(meta){
+  if(!meta || !Object.keys(meta).length) return '';
+  const partes = [];
+  if(meta.monto    !== undefined) partes.push(fmt(meta.monto));
+  if(meta.producto !== undefined) partes.push(meta.producto);
+  if(meta.cantidad !== undefined) partes.push(`${meta.cantidad} unid.`);
+  if(meta.repartidor)             partes.push(meta.repartidor);
+  if(meta.nombre)                 partes.push(meta.nombre);
+  if(meta.diferencia !== undefined && meta.diferencia !== 0)
+    partes.push(`Diferencia: ${fmt(meta.diferencia)}`);
+  if(meta.rol_anterior && meta.rol_nuevo)
+    partes.push(`${meta.rol_anterior} → ${meta.rol_nuevo}`);
+  return partes.join(' · ');
+}
+
+// ── Actualizar switchAnalisisTab para renderAuditoria ─────────
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO: CAJA DIARIA
+// Controla apertura, cierre y cuadre del efectivo diario.
+// Se integra con calcularMes() para obtener ventas del día.
+// ═══════════════════════════════════════════════════════════════
+
+// ── Helpers de caja ───────────────────────────────────────────
+function cajaActiva(){
+  // Devuelve la caja abierta del día actual, o null
+  const hoy = today();
+  return db.cajas.find(c => c.fecha === hoy && c.estado === 'abierta') || null;
+}
+
+function cajaDelDia(fecha){
+  return db.cajas.filter(c => c.fecha === fecha);
+}
+
+function _ventasDelDia(fecha){
+  // Usa el motor financiero para obtener datos del día
+  const f = calcularRango(fecha, fecha);
+  return {
+    totalVentas:       f.ingresos,
+    cantidadVentas:    f.ventasR.length,
+    totalDevoluciones: f.valorDevoluciones,
+    cantidadDevol:     f.devR.length,
+    gastosDia:         f.gastosR.reduce((s,g) => s + (g.monto||0), 0),
+  };
+}
+
+// ── Renderizar página Caja ────────────────────────────────────
+function renderCaja(){
+  _renderCajaEstado();
+  _renderCajaHistorial();
+}
+
+function _renderCajaEstado(){
+  const div = document.getElementById('caja-estado');
+  if(!div) return;
+  const activa = cajaActiva();
+  const hoy = today();
+  const v = _ventasDelDia(hoy);
+
+  if(!activa){
+    // No hay caja abierta hoy
+    const cajasCerradasHoy = db.cajas.filter(c => c.fecha === hoy && c.estado === 'cerrada');
+    div.innerHTML = `
+      <div class="card-hd">
+        <h3>💰 Estado de caja</h3>
+        <span class="badge badge-amber">${new Date().toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short'})}</span>
+      </div>
+      <div style="padding:24px 16px;text-align:center">
+        <div style="font-size:48px;margin-bottom:12px">${cajasCerradasHoy.length ? '🔒' : '⭕'}</div>
+        <div style="font-size:15px;font-weight:700;color:var(--cream);margin-bottom:6px">
+          ${cajasCerradasHoy.length ? 'Caja cerrada hoy' : 'Caja no abierta'}
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:20px">
+          ${cajasCerradasHoy.length
+            ? `Se cerró con ${cajasCerradasHoy[0].diferencia >= 0 ? '✅ cuadre correcto' : '⚠️ descuadre'}`
+            : 'Abre la caja para comenzar el control del efectivo del día'}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;text-align:left">
+          <div style="background:var(--s2);border-radius:10px;padding:12px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Ventas hoy</div>
+            <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--amber);margin-top:4px">${fmt(v.totalVentas)}</div>
+            <div style="font-size:10px;color:var(--muted)">${v.cantidadVentas} ventas registradas</div>
+          </div>
+          <div style="background:var(--s2);border-radius:10px;padding:12px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Devoluciones</div>
+            <div style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--orange);margin-top:4px">${fmt(v.totalDevoluciones)}</div>
+            <div style="font-size:10px;color:var(--muted)">${v.cantidadDevol} devoluciones</div>
+          </div>
+        </div>
+        ${canEdit() ? `<button class="btn btn-amber btn-full" onclick="prepararAbrirCaja()">💰 Abrir caja de hoy</button>` : ''}
+      </div>`;
+  } else {
+    // Hay caja abierta — mostrar estado en tiempo real
+    const esperado = activa.saldoInicial + v.totalVentas - v.totalDevoluciones - v.gastosDia;
+    const horaApertura = new Date(activa.fechaApertura).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+
+    div.innerHTML = `
+      <div class="card-hd" style="border-color:var(--green)">
+        <h3 style="color:var(--green)">🟢 Caja abierta</h3>
+        <span class="badge badge-green">Desde ${horaApertura}</span>
+      </div>
+      <div style="padding:16px">
+        <!-- Flujo de caja en cascada -->
+        <div style="background:var(--s2);border-radius:10px;overflow:hidden;margin-bottom:12px">
+          <div class="fin-row" style="padding:12px 14px;border-bottom:1px solid var(--border)">
+            <div>
+              <div class="fin-label">💵 Saldo inicial</div>
+              <div class="fin-hint">Al abrir (${activa.turno})</div>
+            </div>
+            <div class="fin-val amber">${fmt(activa.saldoInicial)}</div>
+          </div>
+          <div class="fin-row" style="padding:12px 14px;border-bottom:1px solid var(--border)">
+            <div>
+              <div class="fin-label">🧾 + Ventas del día</div>
+              <div class="fin-hint">${v.cantidadVentas} ventas registradas</div>
+            </div>
+            <div class="fin-val green">+${fmt(v.totalVentas)}</div>
+          </div>
+          ${v.totalDevoluciones > 0 ? `
+          <div class="fin-row" style="padding:12px 14px;border-bottom:1px solid var(--border)">
+            <div>
+              <div class="fin-label">↩️ − Devoluciones</div>
+              <div class="fin-hint">${v.cantidadDevol} devoluciones</div>
+            </div>
+            <div class="fin-val orange">−${fmt(v.totalDevoluciones)}</div>
+          </div>` : ''}
+          ${v.gastosDia > 0 ? `
+          <div class="fin-row" style="padding:12px 14px;border-bottom:1px solid var(--border)">
+            <div>
+              <div class="fin-label">💸 − Gastos pagados</div>
+              <div class="fin-hint">Efectivo saliente</div>
+            </div>
+            <div class="fin-val red">−${fmt(v.gastosDia)}</div>
+          </div>` : ''}
+          <div class="fin-row" style="padding:14px;background:var(--s3)">
+            <div>
+              <div class="fin-total">= Debería haber en caja</div>
+              <div class="fin-hint">Saldo esperado</div>
+            </div>
+            <div class="fin-result amber" style="font-size:22px">${fmt(esperado)}</div>
+          </div>
+        </div>
+
+        <!-- Tiempo abierta -->
+        <div style="text-align:center;font-size:11px;color:var(--muted);margin-bottom:14px">
+          ⏱ Caja abierta hace ${_tiempoTranscurrido(activa.fechaApertura)}
+          ${activa.notas ? `· "${activa.notas}"` : ''}
+        </div>
+
+        ${canEdit() ? `
+        <button class="btn btn-amber btn-full" onclick="prepararCerrarCaja()">
+          🔒 Cerrar caja y hacer cuadre
+        </button>` : ''}
+      </div>`;
+  }
+}
+
+function _renderCajaHistorial(){
+  const div = document.getElementById('caja-historial');
+  const cnt = document.getElementById('caja-hist-count');
+  if(!div) return;
+
+  const cajas = [...db.cajas].sort((a,b) => b.fecha.localeCompare(a.fecha));
+  if(cnt) cnt.textContent = cajas.length ? `${cajas.length} registros` : '';
+
+  if(!cajas.length){
+    div.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">
+      <div style="font-size:32px;margin-bottom:8px;opacity:0.35">📋</div>
+      Sin historial todavía.<br>Abre tu primera caja hoy.
+    </div>`;
+    return;
+  }
+
+  div.innerHTML = cajas.map(c => {
+    const diferencia = c.diferencia ?? null;
+    const estadoColor = c.estado === 'abierta' ? 'var(--green)' :
+                        diferencia === null      ? 'var(--muted)' :
+                        diferencia === 0         ? 'var(--green)' :
+                        Math.abs(diferencia) < 5000 ? 'var(--amber)' : 'var(--red)';
+    const estadoIcon  = c.estado === 'abierta' ? '🟢' :
+                        diferencia === null      ? '🔒' :
+                        diferencia === 0         ? '✅' :
+                        Math.abs(diferencia) < 5000 ? '⚠️' : '🔴';
+
+    return `
+      <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+        <div class="fin-row" style="margin-bottom:6px">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--cream)">
+              ${estadoIcon} ${new Date(c.fecha+'T12:00:00').toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short',year:'numeric'})}
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">
+              ${c.turno ? c.turno.charAt(0).toUpperCase()+c.turno.slice(1) : ''}
+              · Abrió: ${fmt(c.saldoInicial)}
+              ${c.estado === 'cerrada' && c.saldoCierre !== undefined ? `· Cerró: ${fmt(c.saldoCierre)}` : ''}
+            </div>
+          </div>
+          <div style="text-align:right">
+            ${c.estado === 'cerrada' && diferencia !== null ? `
+            <div style="font-family:'DM Serif Display',serif;font-size:16px;color:${estadoColor}">
+              ${diferencia >= 0 ? '+' : ''}${fmt(diferencia)}
+            </div>
+            <div style="font-size:10px;color:var(--muted)">${diferencia === 0 ? 'Cuadrado' : 'Diferencia'}</div>
+            ` : `<div style="font-size:11px;color:${estadoColor}">${c.estado === 'abierta' ? 'Abierta' : 'Cerrada'}</div>`}
+          </div>
+        </div>
+        ${c.estado === 'cerrada' ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+          <div style="background:var(--s2);border-radius:6px;padding:6px 8px;font-size:10px;color:var(--muted)">
+            Ventas<br><span style="color:var(--amber);font-weight:700">${fmt(c.ventasDia||0)}</span>
+          </div>
+          <div style="background:var(--s2);border-radius:6px;padding:6px 8px;font-size:10px;color:var(--muted)">
+            Gastos<br><span style="color:var(--red);font-weight:700">${fmt(c.gastosDia||0)}</span>
+          </div>
+          <div style="background:var(--s2);border-radius:6px;padding:6px 8px;font-size:10px;color:var(--muted)">
+            Devol.<br><span style="color:var(--orange);font-weight:700">${fmt(c.devolDia||0)}</span>
+          </div>
+        </div>
+        ${c.motivoDescuadre ? `<div style="margin-top:6px;font-size:11px;color:var(--amber)">⚠️ ${c.motivoDescuadre}</div>` : ''}
+        ${c.notas ? `<div style="margin-top:4px;font-size:11px;color:var(--muted)">📝 ${c.notas}</div>` : ''}
+        ` : ''}
+      </div>`;
+  }).join('');
+}
+
+// ── Acciones de caja ──────────────────────────────────────────
+function prepararAbrirCaja(){
+  // Setear fecha de hoy por defecto
+  const input = document.getElementById('caja-fecha-apertura');
+  if(input) input.value = today();
+  openSheet('sheet-abrir-caja');
+}
+
+function abrirCaja(){
+  const fecha  = document.getElementById('caja-fecha-apertura')?.value;
+  const saldo  = parseFloat(document.getElementById('caja-saldo-inicial')?.value || '0');
+  const turno  = document.getElementById('caja-turno')?.value || 'completo';
+  const notas  = document.getElementById('caja-notas-apertura')?.value?.trim() || '';
+
+  if(!fecha){ toast('Selecciona una fecha','err'); return; }
+  if(isNaN(saldo) || saldo < 0){ toast('Saldo inicial inválido','err'); return; }
+
+  // Verificar que no haya caja abierta ese día
+  const yaAbierta = db.cajas.find(c => c.fecha === fecha && c.estado === 'abierta');
+  if(yaAbierta){ toast('Ya hay una caja abierta para esa fecha','err'); return; }
+
+  const caja = {
+    id:            uid(),
+    fecha,
+    turno,
+    saldoInicial:  saldo,
+    estado:        'abierta',
+    abiertaPor:    fbAuth?.currentUser?.uid || 'local',
+    fechaApertura: new Date().toISOString(),
+    notas,
+  };
+
+  db.cajas.push(caja);
+  registrarAuditoria(`Caja abierta — ${turno}`, 'caja', { monto: saldo });
+  saveDB();
+  closeSheet('sheet-abrir-caja');
+  toast('✅ Caja abierta');
+  renderCaja();
+}
+
+function prepararCerrarCaja(){
+  const activa = cajaActiva();
+  if(!activa){ toast('No hay caja abierta','err'); return; }
+
+  // Calcular resumen del día
+  const hoy = today();
+  const v   = _ventasDelDia(hoy);
+  const esperado = activa.saldoInicial + v.totalVentas - v.totalDevoluciones - v.gastosDia;
+
+  const resumenEl = document.getElementById('caja-resumen-cierre');
+  if(resumenEl){
+    resumenEl.innerHTML = `
+      <div style="padding:12px 14px">
+        <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:10px">📊 Resumen del día</div>
+        <div class="fin-row" style="margin-bottom:6px">
+          <span class="fin-hint">Saldo inicial</span>
+          <span style="font-size:13px;color:var(--cream)">${fmt(activa.saldoInicial)}</span>
+        </div>
+        <div class="fin-row" style="margin-bottom:6px">
+          <span class="fin-hint">+ Ventas (${v.cantidadVentas})</span>
+          <span style="font-size:13px;color:var(--green)">+${fmt(v.totalVentas)}</span>
+        </div>
+        ${v.totalDevoluciones > 0 ? `
+        <div class="fin-row" style="margin-bottom:6px">
+          <span class="fin-hint">− Devoluciones</span>
+          <span style="font-size:13px;color:var(--orange)">−${fmt(v.totalDevoluciones)}</span>
+        </div>` : ''}
+        ${v.gastosDia > 0 ? `
+        <div class="fin-row" style="margin-bottom:6px">
+          <span class="fin-hint">− Gastos</span>
+          <span style="font-size:13px;color:var(--red)">−${fmt(v.gastosDia)}</span>
+        </div>` : ''}
+        <div class="fin-row" style="padding-top:8px;border-top:1px solid var(--border)">
+          <span style="font-size:13px;font-weight:700;color:var(--cream)">= Debería haber</span>
+          <span style="font-family:'DM Serif Display',serif;font-size:18px;color:var(--amber)">${fmt(esperado)}</span>
+        </div>
+      </div>`;
+  }
+
+  // Limpiar campos
+  const saldoCierre = document.getElementById('caja-saldo-cierre');
+  if(saldoCierre) saldoCierre.value = '';
+  const difDisplay = document.getElementById('caja-diferencia-display');
+  if(difDisplay) difDisplay.style.display = 'none';
+  const motivoWrap = document.getElementById('caja-motivo-wrap');
+  if(motivoWrap) motivoWrap.style.display = 'none';
+
+  openSheet('sheet-cerrar-caja');
+}
+
+function calcularDiferenciaCierre(){
+  const activa = cajaActiva();
+  if(!activa) return;
+
+  const saldoVal  = parseFloat(document.getElementById('caja-saldo-cierre')?.value || '');
+  const difDisplay = document.getElementById('caja-diferencia-display');
+  const motivoWrap = document.getElementById('caja-motivo-wrap');
+  if(!difDisplay || !motivoWrap) return;
+
+  if(isNaN(saldoVal)){
+    difDisplay.style.display = 'none';
+    motivoWrap.style.display = 'none';
+    return;
+  }
+
+  const v = _ventasDelDia(activa.fecha);
+  const esperado   = activa.saldoInicial + v.totalVentas - v.totalDevoluciones - v.gastosDia;
+  const diferencia = saldoVal - esperado;
+  const hayDescuadre = Math.abs(diferencia) > 0;
+
+  // Colores según magnitud
+  const color  = diferencia === 0 ? 'var(--green)'  :
+                 Math.abs(diferencia) < 5000 ? 'var(--amber)' : 'var(--red)';
+  const bgColor= diferencia === 0 ? 'var(--green-bg)' :
+                 Math.abs(diferencia) < 5000 ? 'var(--amber-bg)' : 'var(--red-bg)';
+  const icon   = diferencia === 0 ? '✅' : diferencia > 0 ? '📈' : '📉';
+  const msg    = diferencia === 0 ? 'Caja cuadrada perfectamente' :
+                 diferencia > 0  ? `Sobran ${fmt(Math.abs(diferencia))}` :
+                                   `Faltan ${fmt(Math.abs(diferencia))}`;
+
+  difDisplay.style.display = 'block';
+  difDisplay.style.background  = bgColor;
+  difDisplay.style.border      = `1px solid ${color}`;
+  difDisplay.style.borderRadius = '10px';
+  difDisplay.innerHTML = `
+    <div style="font-size:24px;margin-bottom:4px">${icon}</div>
+    <div style="font-size:14px;font-weight:700;color:${color}">${msg}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">
+      Esperado: ${fmt(esperado)} · Contado: ${fmt(saldoVal)}
+    </div>`;
+
+  // Mostrar campo de motivo si hay descuadre
+  motivoWrap.style.display = hayDescuadre ? 'block' : 'none';
+  const otroInput = document.getElementById('caja-motivo-otro');
+  const motivoSel = document.getElementById('caja-motivo-descuadre');
+  if(motivoSel && otroInput){
+    motivoSel.onchange = () => {
+      otroInput.style.display = motivoSel.value === 'otro' ? 'block' : 'none';
+    };
+  }
+}
+
+function cerrarCaja(){
+  const activa = cajaActiva();
+  if(!activa){ toast('No hay caja abierta','err'); return; }
+
+  const saldoVal = parseFloat(document.getElementById('caja-saldo-cierre')?.value || '');
+  if(isNaN(saldoVal) || saldoVal < 0){ toast('Ingresa el saldo físico real','err'); return; }
+
+  const v = _ventasDelDia(activa.fecha);
+  const esperado   = activa.saldoInicial + v.totalVentas - v.totalDevoluciones - v.gastosDia;
+  const diferencia = saldoVal - esperado;
+  const hayDescuadre = Math.abs(diferencia) > 0;
+
+  // Validar motivo si hay descuadre
+  if(hayDescuadre){
+    const motivoSel = document.getElementById('caja-motivo-descuadre');
+    const motivoOtro = document.getElementById('caja-motivo-otro');
+    const motivo = motivoSel?.value || '';
+    if(!motivo){ toast('Debes indicar el motivo del descuadre','err'); return; }
+    if(motivo === 'otro' && !motivoOtro?.value?.trim()){
+      toast('Describe el motivo del descuadre','err'); return;
+    }
+  }
+
+  const motivoSel  = document.getElementById('caja-motivo-descuadre');
+  const motivoOtro = document.getElementById('caja-motivo-otro');
+  const motivo     = motivoSel?.value === 'otro'
+    ? motivoOtro?.value?.trim()
+    : (motivoSel?.value ? motivoSel.options[motivoSel.selectedIndex]?.text : '');
+
+  // Actualizar la caja con datos de cierre
+  const idx = db.cajas.findIndex(c => c.id === activa.id);
+  if(idx < 0){ toast('Error: caja no encontrada','err'); return; }
+
+  db.cajas[idx] = {
+    ...activa,
+    estado:          'cerrada',
+    saldoCierre:     saldoVal,
+    saldoEsperado:   esperado,
+    diferencia,
+    motivoDescuadre: hayDescuadre ? motivo : '',
+    ventasDia:       v.totalVentas,
+    devolDia:        v.totalDevoluciones,
+    gastosDia:       v.gastosDia,
+    cantidadVentas:  v.cantidadVentas,
+    cerradoPor:      fbAuth?.currentUser?.uid || 'local',
+    fechaCierre:     new Date().toISOString(),
+    notas:           document.getElementById('caja-notas-cierre')?.value?.trim() || activa.notas || '',
+  };
+
+  registrarAuditoria(
+    diferencia === 0 ? 'Caja cerrada — cuadre perfecto' : `Caja cerrada — diferencia: ${fmt(Math.abs(diferencia))}`,
+    'caja',
+    { monto: saldoVal, diferencia }
+  );
+  saveDB();
+  closeSheet('sheet-cerrar-caja');
+
+  const msg = diferencia === 0
+    ? '✅ Caja cerrada — cuadre perfecto'
+    : diferencia > 0
+      ? `✅ Caja cerrada — sobran ${fmt(Math.abs(diferencia))}`
+      : `⚠️ Caja cerrada — faltan ${fmt(Math.abs(diferencia))}`;
+  toast(msg);
+  renderCaja();
+}
+
+// ── Utilidad: tiempo transcurrido legible ─────────────────────
+function _tiempoTranscurrido(isoString){
+  const ms = Date.now() - new Date(isoString).getTime();
+  const min = Math.floor(ms / 60000);
+  const hrs = Math.floor(min / 60);
+  if(hrs > 0) return `${hrs}h ${min % 60}m`;
+  return `${min}m`;
+}
+
 function showLoginError(msg){
   const e = document.getElementById('login-error');
   e.textContent = msg; e.style.display = 'block';
@@ -5035,11 +5782,20 @@ function applyRoleUI(){
   const tabUsuarios = document.getElementById('tab-usuarios-app');
   if(tabUsuarios) tabUsuarios.style.display = currentRole === 'dueno' ? 'block' : 'none';
 
+  // ── Pestaña Gastos en Movimientos: dueño, admin y cajero ─
+  // Repartidor y contador NO ven lo que paga la empresa
+  const tabGastos = document.getElementById('tab-mov-gastos');
+  if(tabGastos){
+    const verGastosTab = ['dueno','admin','cajero'].includes(currentRole);
+    tabGastos.style.display = verGastosTab ? 'block' : 'none';
+  }
+
   // ── Navegación por rol ────────────────────────────────────
   // Cada rol solo accede a las páginas que le corresponden
   const ACCESO_NAV = {
-    dueno:      ['home','inv','mov','equipo','analisis'],
-    admin:      ['home','inv','mov','equipo'],
+    dueno:      ['home','inv','mov','caja','equipo','analisis'],
+    admin:      ['home','inv','mov','caja','equipo'],
+    cajero:     ['home','mov','caja'],
     repartidor: ['mov'],
     contador:   ['home','analisis'],
   };
@@ -5084,8 +5840,9 @@ function applyRoleUI(){
 // ── Verificar acceso antes de navegar ─────────────────────────
 function puedeNavegar(page){
   const ACCESO_NAV = {
-    dueno:      ['home','inv','mov','equipo','analisis'],
-    admin:      ['home','inv','mov','equipo'],
+    dueno:      ['home','inv','mov','caja','equipo','analisis'],
+    admin:      ['home','inv','mov','caja','equipo'],
+    cajero:     ['home','mov','caja'],
     repartidor: ['mov'],
     contador:   ['home','analisis'],
   };
@@ -5183,47 +5940,86 @@ async function renderUsuariosApp(){
   const div = document.getElementById('usuarios-list');
   if(!div) return;
 
-  // Cargar desde localStorage (caché local)
-  const usuarios = JSON.parse(localStorage.getItem('hapirium_usuarios_creados')||'[]');
+  div.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">⏳ Cargando usuarios...</div>`;
 
-  // También incluir al dueño actual
-  const rolLabels = {
-    dueno:       '👑 Dueño',
-    admin:       '📦 Administrador',
-    repartidor:  '🚚 Repartidor',
-    contador:    '👀 Contador',
-  };
-
-  if(!usuarios.length){
-    div.innerHTML=`<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px;">
-      <div style="font-size:32px;margin-bottom:8px;opacity:0.4">👥</div>
-      No hay usuarios creados aún.<br>Toca "+ Crear usuario" para agregar empleados.
+  // Cargar SIEMPRE desde Firestore — nunca desde caché local
+  // Así se ven los usuarios actuales (incluyendo eliminados de Firebase)
+  if(!fbDb || fbMode !== 'firebase'){
+    div.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">
+      ⚠️ Necesitas estar conectado a Firebase para gestionar usuarios.
     </div>`;
     return;
   }
 
-  div.innerHTML = usuarios.map(u=>`
-    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
-      <div style="width:40px;height:40px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">
-        ${u.rol==='admin'?'📦':u.rol==='repartidor'?'🚚':u.rol==='contador'?'👀':'👑'}
-      </div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:700;color:var(--cream)">${u.nombre}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${u.email}</div>
-        <div style="margin-top:4px">
-          <select onchange="cambiarRolUsuario('${u.uid}',this.value)"
-            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--cream);font-family:'Outfit',sans-serif;cursor:pointer">
-            <option value="admin"    ${u.rol==='admin'?'selected':''}>📦 Administrador</option>
-            <option value="repartidor" ${u.rol==='repartidor'?'selected':''}>🚚 Repartidor</option>
-            <option value="contador" ${u.rol==='contador'?'selected':''}>👀 Contador</option>
-          </select>
+  try {
+    const snap = await fbDb.collection('users').get();
+    const usuarios = [];
+    snap.forEach(doc => {
+      const data = doc.data();
+      // Excluir al dueño actual de la lista de gestión
+      if(doc.id !== fbAuth?.currentUser?.uid){
+        usuarios.push({ uid: doc.id, ...data });
+      }
+    });
+
+    if(!usuarios.length){
+      div.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px;">
+        <div style="font-size:32px;margin-bottom:8px;opacity:0.4">👥</div>
+        No hay otros usuarios creados aún.<br>
+        Toca "+ Crear usuario" para agregar empleados.
+      </div>`;
+      return;
+    }
+
+    div.innerHTML = usuarios.map(u => `
+      <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+        <div style="width:40px;height:40px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">
+          ${u.rol==='admin'?'📦':u.rol==='cajero'?'🏧':u.rol==='repartidor'?'🚚':u.rol==='contador'?'👀':'👑'}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:700;color:var(--cream)">${u.nombre||'Sin nombre'}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${u.email||''}</div>
+          <div style="margin-top:4px">
+            <select onchange="cambiarRolUsuario('${u.uid}',this.value)"
+              style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--cream);font-family:'Outfit',sans-serif;cursor:pointer">
+              <option value="admin"       ${u.rol==='admin'      ?'selected':''}>📦 Administrador</option>
+              <option value="cajero"      ${u.rol==='cajero'     ?'selected':''}>🏧 Cajero</option>
+              <option value="repartidor"  ${u.rol==='repartidor' ?'selected':''}>🚚 Repartidor</option>
+              <option value="contador"    ${u.rol==='contador'   ?'selected':''}>👀 Contador</option>
+            </select>
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:10px;color:${u.activo!==false?'var(--green)':'var(--red)'}">
+            ${u.activo!==false?'● Activo':'● Inactivo'}
+          </div>
+          <div onclick="desactivarUsuario('${u.uid}','${u.nombre||''}',${u.activo!==false})"
+            style="margin-top:4px;font-size:10px;color:var(--muted);cursor:pointer;text-decoration:underline">
+            ${u.activo!==false?'Desactivar':'Activar'}
+          </div>
         </div>
       </div>
-      <div style="font-size:10px;color:${u.activo!==false?'var(--green)':'var(--red)'}">
-        ${u.activo!==false?'● Activo':'● Inactivo'}
-      </div>
-    </div>
-  `).join('');
+    `).join('');
+
+  } catch(e){
+    console.error('Error cargando usuarios:', e);
+    div.innerHTML = `<div style="padding:20px;text-align:center;color:var(--red);font-size:13px;">
+      ❌ Error cargando usuarios: ${e.message}
+    </div>`;
+  }
+}
+
+// Activar/desactivar usuario en Firestore (sin eliminarlo)
+async function desactivarUsuario(uid, nombre, estaActivo){
+  const accion = estaActivo ? 'desactivar' : 'activar';
+  if(!confirm(`¿${accion.charAt(0).toUpperCase()+accion.slice(1)} a ${nombre}?\n\n${estaActivo?'No podrá iniciar sesión.':'Podrá volver a iniciar sesión.'}`)) return;
+  try {
+    await fbDb.collection('users').doc(uid).update({ activo: !estaActivo });
+    toast(`✅ Usuario ${estaActivo?'desactivado':'activado'}`);
+    renderUsuariosApp(); // Recargar lista desde Firestore
+  } catch(e){
+    toast('Error: ' + e.message, 'err');
+  }
 }
 
 async function cambiarRolUsuario(uid, nuevoRol){
@@ -5231,6 +6027,7 @@ async function cambiarRolUsuario(uid, nuevoRol){
   if(!fbDb){ toast('Sin conexión a Firebase','err'); return; }
   try {
     await fbDb.collection('users').doc(uid).update({ rol: nuevoRol });
+    registrarAuditoria(`Rol de usuario cambiado`, 'usuario', { nombre: uid, rol_nuevo: nuevoRol });
     // Actualizar caché local
     const usuarios = JSON.parse(localStorage.getItem('hapirium_usuarios_creados')||'[]');
     const u = usuarios.find(x=>x.uid===uid);
@@ -5266,8 +6063,9 @@ function showApp(){
 function renderCurrentPage(){
   // Si la página actual no está permitida, ir a la primera permitida
   const ACCESO_NAV = {
-    dueno:      ['home','inv','mov','equipo','analisis'],
-    admin:      ['home','inv','mov','equipo'],
+    dueno:      ['home','inv','mov','caja','equipo','analisis'],
+    admin:      ['home','inv','mov','caja','equipo'],
+    cajero:     ['home','mov','caja'],
     repartidor: ['mov'],
     contador:   ['home','analisis'],
   };
@@ -5287,6 +6085,7 @@ function renderCurrentPage(){
     home:     renderDashboard,
     inv:      renderInv,
     mov:      renderVentas,
+    caja:     renderCaja,
     equipo:   renderReps,
     analisis: renderAnalisis,
   };
@@ -5592,6 +6391,7 @@ function pagarTodosEmpleado(empId, desde, hasta){
     _pagadoEn: fechaPago,
   };
   db.gastos.push(gastoNomina);
+  registrarAuditoria(`Nómina pagada — ${getEmp(empId).nombre}`,'nomina',{monto:gastoNomina.monto});
   saveDB();
 
   // Guardar en historial para poder deshacer
