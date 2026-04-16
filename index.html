@@ -788,7 +788,7 @@ body {
 <!-- HEADER -->
 <div id="app-header">
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="background:var(--amber);width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+    <div style="background:var(--amber);width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer" onclick="_tapLogo()" id="hp-logo">
       <span style="font-family:'DM Serif Display',serif;font-size:13px;color:#000;font-weight:700;letter-spacing:-0.5px">HP</span>
     </div>
     <div>
@@ -4961,51 +4961,53 @@ async function initFirebase(config){
 
 // ── Cargar perfil del usuario desde Firestore ─────────────
 async function loadUserProfile(uid){
+  // SIEMPRE limpiar caché anterior al cargar — nunca confiar en datos viejos
+  localStorage.removeItem('hapirium_cached_role');
+  localStorage.removeItem('hapirium_cached_uid');
+
   try {
     const snap = await fbDb.collection('users').doc(uid).get();
     if(snap.exists()){
       const data = snap.data();
-      // Verificar que el campo rol existe y es válido
-      const rolValido = ['dueno','admin','cajero','repartidor','contador'].includes(data.rol);
-      if(rolValido){
-        currentRole = data.rol;
-      } else {
-        // Rol inválido o no definido → repartidor por seguridad (mínimo privilegio)
-        console.warn('Rol inválido en Firestore:', data.rol, '→ usando repartidor');
-        currentRole = 'repartidor';
+      const rolesValidos = ['dueno','admin','cajero','repartidor','contador'];
+      const rolValido = rolesValidos.includes(data.rol);
+
+      currentRole = rolValido ? data.rol : 'repartidor';
+
+      if(!rolValido){
+        console.warn('Rol no reconocido en Firestore:', data.rol);
       }
-      // Guardar en localStorage como caché por si se cae Firebase momentáneamente
+
+      // Guardar caché solo después de confirmar con Firestore
       localStorage.setItem('hapirium_cached_role', currentRole);
       localStorage.setItem('hapirium_cached_uid', uid);
-      // Registrar ingreso en auditoría
       registrarAuditoria('Sesión iniciada', 'sistema');
+
     } else {
-      // Usuario no tiene documento en Firestore — mínimo privilegio
-      console.warn('Usuario sin perfil en Firestore uid:', uid);
-      // Intentar recuperar de caché
-      const cached = localStorage.getItem('hapirium_cached_role');
-      const cachedUid = localStorage.getItem('hapirium_cached_uid');
-      if(cached && cachedUid === uid){
-        currentRole = cached;
-        console.log('Rol recuperado de caché:', currentRole);
+      // No hay documento para este UID en Firestore
+      // Puede ser un usuario recién creado — esperar y reintentar una vez
+      console.warn('Sin perfil en Firestore para uid:', uid, '— reintentando en 2s...');
+      await new Promise(r => setTimeout(r, 2000));
+
+      const snap2 = await fbDb.collection('users').doc(uid).get();
+      if(snap2.exists()){
+        const data2 = snap2.data();
+        const rolesValidos = ['dueno','admin','cajero','repartidor','contador'];
+        currentRole = rolesValidos.includes(data2.rol) ? data2.rol : 'repartidor';
+        localStorage.setItem('hapirium_cached_role', currentRole);
+        localStorage.setItem('hapirium_cached_uid', uid);
       } else {
-        currentRole = 'repartidor'; // mínimo privilegio si no hay datos
+        // Definitivamente no existe — mínimo privilegio
+        console.warn('Perfil no encontrado tras reintento — usando repartidor');
+        currentRole = 'repartidor';
       }
     }
     applyRoleUI();
   } catch(e){
-    console.warn('Error cargando perfil Firebase:', e);
-    // Intentar caché local antes de fallar
-    const cached = localStorage.getItem('hapirium_cached_role');
-    const cachedUid = localStorage.getItem('hapirium_cached_uid');
-    if(cached && cachedUid === uid){
-      currentRole = cached;
-      applyRoleUI();
-    } else {
-      // Sin caché → mínimo privilegio
-      currentRole = 'repartidor';
-      applyRoleUI();
-    }
+    console.warn('Error cargando perfil Firebase:', e.message);
+    // Si Firebase falla completamente, mínimo privilegio — NO confiar en caché
+    currentRole = 'repartidor';
+    applyRoleUI();
   }
 }
 
@@ -5745,6 +5747,43 @@ function _tiempoTranscurrido(isoString){
   const hrs = Math.floor(min / 60);
   if(hrs > 0) return `${hrs}h ${min % 60}m`;
   return `${min}m`;
+}
+
+
+// ── Toque triple en logo HP → forzar recarga de rol desde Firestore ─
+let _logoTaps = 0, _logoTimer = null;
+function _tapLogo(){
+  _logoTaps++;
+  clearTimeout(_logoTimer);
+  _logoTimer = setTimeout(()=>{ _logoTaps=0; }, 800);
+  if(_logoTaps >= 3){
+    _logoTaps=0;
+    forzarRecargarRol();
+  }
+}
+
+async function forzarRecargarRol(){
+  if(!fbAuth?.currentUser){ toast('No hay sesión activa','err'); return; }
+  toast('⏳ Recargando rol desde Firebase...');
+  localStorage.removeItem('hapirium_cached_role');
+  localStorage.removeItem('hapirium_cached_uid');
+  try {
+    const uid = fbAuth.currentUser.uid;
+    const snap = await fbDb.collection('users').doc(uid).get();
+    if(snap.exists()){
+      const data = snap.data();
+      const rolesValidos = ['dueno','admin','cajero','repartidor','contador'];
+      currentRole = rolesValidos.includes(data.rol) ? data.rol : 'repartidor';
+      localStorage.setItem('hapirium_cached_role', currentRole);
+      localStorage.setItem('hapirium_cached_uid', uid);
+      toast(`✅ Rol cargado: ${ROLES[currentRole]?.icon} ${ROLES[currentRole]?.label}`);
+      applyRoleUI();
+    } else {
+      toast('⚠️ No se encontró tu perfil en Firestore','err');
+    }
+  } catch(e){
+    toast('Error: ' + e.message,'err');
+  }
 }
 
 function showLoginError(msg){
