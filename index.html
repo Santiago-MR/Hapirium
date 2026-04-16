@@ -744,23 +744,12 @@ body {
         <div id="login-error" style="display:none;background:var(--red-bg);border:1px solid var(--red);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--red);margin-bottom:12px;"></div>
         <div class="form-group"><label>Correo electrónico</label><input type="email" id="login-email" placeholder="correo@ejemplo.com" autocomplete="email"></div>
         <div class="form-group"><label>Contraseña</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password"></div>
-        <div class="form-group" id="login-nombre-wrap" style="display:none;"><label>Nombre completo</label><input type="text" id="login-nombre" placeholder="Tu nombre"></div>
-        <div class="form-group" id="login-rol-wrap" style="display:none;">
-          <label>Rol</label>
-          <select id="login-rol">
-            <option value="dueno">👑 Dueño</option>
-            <option value="admin">📦 Administrador</option>
-            <option value="repartidor">🚚 Repartidor</option>
-            <option value="contador">👀 Contador (solo lectura)</option>
-          </select>
-        </div>
         <button class="btn btn-amber btn-full" id="login-btn" onclick="doLogin()" style="margin-top:4px;">Entrar</button>
-        <div style="text-align:center;margin-top:12px;">
-          <span id="login-toggle-text" style="font-size:13px;color:var(--muted);">¿No tienes cuenta? </span>
-          <span id="login-toggle-btn" onclick="toggleLoginMode()" style="font-size:13px;color:var(--amber);cursor:pointer;font-weight:600;">Registrarse</span>
+        <div style="text-align:center;margin-top:12px;font-size:12px;color:var(--muted);">
+          El acceso es solo por invitación del administrador.
         </div>
         <div style="text-align:center;margin-top:8px;">
-          <span onclick="usarSinFirebase()" style="font-size:12px;color:var(--muted);cursor:pointer;text-decoration:underline;">Continuar sin cuenta</span>
+          <span onclick="usarSinFirebase()" style="font-size:12px;color:var(--muted);cursor:pointer;text-decoration:underline;">Continuar sin cuenta (modo local)</span>
         </div>
       </div>
     </div>
@@ -919,6 +908,7 @@ body {
     <div class="tab-row">
       <div class="tab-pill active" onclick="switchEquipoTab(this,'repartidores')">Repartidores</div>
       <div class="tab-pill" onclick="switchEquipoTab(this,'empleados')">Empleados</div>
+      <div class="tab-pill" id="tab-usuarios-app" onclick="switchEquipoTab(this,'usuarios')" style="display:none">👥 Usuarios</div>
     </div>
     <div id="equipo-repartidores">
       <div class="card" id="reps-list"></div>
@@ -926,6 +916,17 @@ body {
     <div id="equipo-empleados" style="display:none">
       <div id="emp-stats" class="stats-row mb12"></div>
       <div class="card" id="emp-list"></div>
+    </div>
+    <div id="equipo-usuarios" style="display:none">
+      <div style="background:var(--amber-bg);border:1px solid var(--amber-d);border-radius:12px;padding:14px;margin-bottom:12px;">
+        <div style="font-size:13px;font-weight:700;color:var(--amber);margin-bottom:4px">👑 Gestión de accesos</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5">
+          Solo el dueño puede crear y modificar usuarios.<br>
+          Los usuarios creados aquí podrán iniciar sesión en la app.
+        </div>
+      </div>
+      <div id="usuarios-list" class="card mb12"></div>
+      <button class="btn btn-amber btn-full" onclick="openSheet('sheet-nuevo-usuario')">＋ Crear usuario</button>
     </div>
   </div>
 
@@ -1163,6 +1164,43 @@ body {
 </div>
 
 <!-- Sheet Repartidor -->
+<!-- ══ SHEET: Nuevo usuario de la app ══ -->
+<div id="sheet-nuevo-usuario" class="sheet-overlay">
+  <div class="sheet">
+    <div class="sheet-hd">
+      <div class="sheet-title">👥 Crear usuario</div>
+      <div class="sheet-close" onclick="closeSheet('sheet-nuevo-usuario')">✕</div>
+    </div>
+    <div class="sheet-body">
+      <div style="background:var(--s2);border-radius:10px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.6;">
+        El usuario recibirá estas credenciales para iniciar sesión en Hapirium desde cualquier dispositivo.
+      </div>
+      <div class="form-group"><label>Nombre completo *</label><input type="text" id="nu-nombre" placeholder="Ej: Carlos Gómez"></div>
+      <div class="form-group"><label>Correo electrónico *</label><input type="email" id="nu-email" placeholder="correo@ejemplo.com"></div>
+      <div class="form-group"><label>Contraseña *</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="nu-pass" placeholder="Mínimo 6 caracteres" style="flex:1">
+          <button onclick="generarContrasena()" style="background:var(--s3);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;color:var(--amber);cursor:pointer;white-space:nowrap">🔑 Generar</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Rol *</label>
+        <select id="nu-rol">
+          <option value="admin">📦 Administrador — ventas, inventario, gastos</option>
+          <option value="repartidor">🚚 Repartidor — solo sus ventas y devoluciones</option>
+          <option value="contador">👀 Contador — solo lectura, reportes</option>
+        </select>
+      </div>
+      <div id="nu-error" style="display:none;background:var(--red-bg);border:1px solid var(--red);border-radius:8px;padding:10px;font-size:12px;color:var(--red);margin-top:8px;"></div>
+      <div id="nu-ok" style="display:none;background:var(--green-bg,#0d2e1a);border:1px solid var(--green);border-radius:8px;padding:10px;font-size:12px;color:var(--green);margin-top:8px;"></div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeSheet('sheet-nuevo-usuario')">Cancelar</button>
+      <button class="btn btn-amber" style="flex:2" id="nu-btn" onclick="crearUsuarioApp()">Crear usuario</button>
+    </div>
+  </div>
+</div>
+
 <div id="sheet-repartidor" class="sheet-overlay">
   <div class="sheet">
     <div class="sheet-handle"></div>
@@ -3219,9 +3257,11 @@ function switchEquipoTab(el,tab){
   el.classList.add('active');
   document.getElementById('equipo-repartidores').style.display=tab==='repartidores'?'block':'none';
   document.getElementById('equipo-empleados').style.display=tab==='empleados'?'block':'none';
+  document.getElementById('equipo-usuarios').style.display=tab==='usuarios'?'block':'none';
   equipoTab=tab;
   if(tab==='repartidores') renderReps();
   if(tab==='empleados') renderEmpleados();
+  if(tab==='usuarios') renderUsuariosApp();
 }
 
 let analisisTab='financiero';
@@ -4645,17 +4685,7 @@ function showSyncBadge(msg, color){
 // ── Login / Registro ──────────────────────────────────────
 let loginMode = 'login'; // 'login' | 'register'
 
-function toggleLoginMode(){
-  loginMode = loginMode==='login' ? 'register' : 'login';
-  const isReg = loginMode==='register';
-  document.getElementById('login-title').textContent      = isReg ? 'Crear cuenta' : 'Iniciar sesión';
-  document.getElementById('login-btn').textContent        = isReg ? 'Crear cuenta' : 'Entrar';
-  document.getElementById('login-toggle-btn').textContent = isReg ? 'Ya tengo cuenta' : 'Registrarse';
-  document.getElementById('login-toggle-text').textContent= isReg ? '¿Ya tienes cuenta? ' : '¿No tienes cuenta? ';
-  document.getElementById('login-nombre-wrap').style.display = isReg ? 'block' : 'none';
-  document.getElementById('login-rol-wrap').style.display    = isReg ? 'block' : 'none';
-  document.getElementById('login-error').style.display = 'none';
-}
+
 
 async function doLogin(){
   const email = document.getElementById('login-email').value.trim();
@@ -4729,7 +4759,9 @@ function applyRoleUI(){
   const role = ROLES[currentRole];
   if(!role) return;
 
-  // Mostrar badge de rol en header
+  // Mostrar pestaña Usuarios solo al dueño
+  const tabUsuarios = document.getElementById('tab-usuarios-app');
+  if(tabUsuarios) tabUsuarios.style.display = currentRole==='dueno' ? 'block' : 'none';
   const header = document.getElementById('app-header');
   let rolBadge = document.getElementById('rol-badge');
   if(!rolBadge){
@@ -4765,7 +4797,154 @@ function applyRoleUI(){
   }
 }
 
-// ── Mostrar / ocultar pantallas ───────────────────────────
+// ── Gestión de usuarios de la app (solo dueño) ────────────
+
+function generarContrasena(){
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let pass = '';
+  for(let i=0;i<8;i++) pass += chars[Math.floor(Math.random()*chars.length)];
+  document.getElementById('nu-pass').value = pass;
+}
+
+async function crearUsuarioApp(){
+  if(currentRole !== 'dueno'){ toast('Solo el dueño puede crear usuarios','err'); return; }
+  if(!fbAuth){ toast('Necesitas estar conectado a Firebase','err'); return; }
+
+  const nombre = document.getElementById('nu-nombre').value.trim();
+  const email  = document.getElementById('nu-email').value.trim();
+  const pass   = document.getElementById('nu-pass').value.trim();
+  const rol    = document.getElementById('nu-rol').value;
+
+  const errDiv = document.getElementById('nu-error');
+  const okDiv  = document.getElementById('nu-ok');
+  const btn    = document.getElementById('nu-btn');
+  errDiv.style.display='none'; okDiv.style.display='none';
+
+  if(!nombre||!email||!pass){ errDiv.textContent='Completa todos los campos'; errDiv.style.display='block'; return; }
+  if(pass.length<6){ errDiv.textContent='La contraseña debe tener mínimo 6 caracteres'; errDiv.style.display='block'; return; }
+
+  btn.textContent='⏳ Creando...'; btn.disabled=true;
+
+  try {
+    // Crear usuario en Firebase Auth
+    // Guardamos las credenciales del dueño para restaurarlas
+    const emailDueno = fbAuth.currentUser.email;
+    const cred = await fbAuth.createUserWithEmailAndPassword(email, pass);
+    const uid = cred.user.uid;
+
+    // Guardar perfil en Firestore
+    await fbDb.collection('users').doc(uid).set({
+      nombre, email, rol,
+      createdAt: new Date().toISOString(),
+      createdBy: emailDueno,
+      activo: true
+    });
+
+    // Volver a iniciar sesión como dueño
+    await fbAuth.signOut();
+    // El onAuthStateChanged va a detectar el logout y mostrar login
+    // Necesitamos re-autenticar al dueño automáticamente
+
+    okDiv.innerHTML = `
+      <strong>✅ Usuario creado exitosamente</strong><br>
+      <span style="margin-top:4px;display:block">Nombre: ${nombre}</span>
+      <span>Correo: ${email}</span><br>
+      <span>Contraseña: <strong>${pass}</strong></span><br>
+      <span style="margin-top:4px;display:block;color:var(--amber)">⚠️ Comparte estas credenciales con el empleado de forma segura.</span>
+    `;
+    okDiv.style.display='block';
+
+    // Guardar localmente la lista de usuarios creados
+    const usuariosLocal = JSON.parse(localStorage.getItem('hapirium_usuarios_creados')||'[]');
+    usuariosLocal.push({uid, nombre, email, rol, createdAt: new Date().toISOString(), activo:true});
+    localStorage.setItem('hapirium_usuarios_creados', JSON.stringify(usuariosLocal));
+
+    renderUsuariosApp();
+    btn.textContent='Crear otro';
+    btn.disabled=false;
+
+    // Re-login automático del dueño
+    setTimeout(()=>{
+      showLogin();
+      document.getElementById('login-email').value = emailDueno;
+      toast('Sesión cerrada — vuelve a ingresar con tu contraseña');
+    }, 4000);
+
+  } catch(err){
+    const msgs = {
+      'auth/email-already-in-use': 'Ese correo ya tiene una cuenta registrada',
+      'auth/invalid-email':        'Correo inválido',
+      'auth/weak-password':        'Contraseña muy débil — mínimo 6 caracteres',
+    };
+    errDiv.textContent = msgs[err.code] || err.message;
+    errDiv.style.display='block';
+    btn.textContent='Crear usuario';
+    btn.disabled=false;
+  }
+}
+
+async function renderUsuariosApp(){
+  const div = document.getElementById('usuarios-list');
+  if(!div) return;
+
+  // Cargar desde localStorage (caché local)
+  const usuarios = JSON.parse(localStorage.getItem('hapirium_usuarios_creados')||'[]');
+
+  // También incluir al dueño actual
+  const rolLabels = {
+    dueno:       '👑 Dueño',
+    admin:       '📦 Administrador',
+    repartidor:  '🚚 Repartidor',
+    contador:    '👀 Contador',
+  };
+
+  if(!usuarios.length){
+    div.innerHTML=`<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px;">
+      <div style="font-size:32px;margin-bottom:8px;opacity:0.4">👥</div>
+      No hay usuarios creados aún.<br>Toca "+ Crear usuario" para agregar empleados.
+    </div>`;
+    return;
+  }
+
+  div.innerHTML = usuarios.map(u=>`
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">
+        ${u.rol==='admin'?'📦':u.rol==='repartidor'?'🚚':u.rol==='contador'?'👀':'👑'}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;color:var(--cream)">${u.nombre}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${u.email}</div>
+        <div style="margin-top:4px">
+          <select onchange="cambiarRolUsuario('${u.uid}',this.value)"
+            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--cream);font-family:'Outfit',sans-serif;cursor:pointer">
+            <option value="admin"    ${u.rol==='admin'?'selected':''}>📦 Administrador</option>
+            <option value="repartidor" ${u.rol==='repartidor'?'selected':''}>🚚 Repartidor</option>
+            <option value="contador" ${u.rol==='contador'?'selected':''}>👀 Contador</option>
+          </select>
+        </div>
+      </div>
+      <div style="font-size:10px;color:${u.activo!==false?'var(--green)':'var(--red)'}">
+        ${u.activo!==false?'● Activo':'● Inactivo'}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function cambiarRolUsuario(uid, nuevoRol){
+  if(currentRole !== 'dueno'){ toast('Solo el dueño puede cambiar roles','err'); return; }
+  if(!fbDb){ toast('Sin conexión a Firebase','err'); return; }
+  try {
+    await fbDb.collection('users').doc(uid).update({ rol: nuevoRol });
+    // Actualizar caché local
+    const usuarios = JSON.parse(localStorage.getItem('hapirium_usuarios_creados')||'[]');
+    const u = usuarios.find(x=>x.uid===uid);
+    if(u) u.rol = nuevoRol;
+    localStorage.setItem('hapirium_usuarios_creados', JSON.stringify(usuarios));
+    toast(`✅ Rol actualizado a ${nuevoRol}`);
+  } catch(e){
+    toast('Error actualizando rol: '+e.message,'err');
+  }
+}
 function showLogin(){
   document.getElementById('screen-login').style.display = 'block';
   document.getElementById('app-header').style.display   = 'none';
